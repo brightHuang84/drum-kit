@@ -14,16 +14,53 @@ const BY_CODE = Object.fromEntries(PIECES.map((d) => [d.code, d.id]));
 const BY_ID = Object.fromEntries(PIECES.map((d) => [d.id, d]));
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
-const ctx = new AudioCtx({ latencyHint: "interactive" });
+
+function createContext() {
+  // "interactive" asked Chrome for ~32ms of output latency; 0 asks for the
+  // smallest buffer the device will allow (about 8ms on the same machine).
+  try {
+    return new AudioCtx({ latencyHint: 0 });
+  } catch (err) {
+    return new AudioCtx();
+  }
+}
+
+const ctx = createContext();
 const master = ctx.createGain();
-const limiter = ctx.createDynamicsCompressor();
-limiter.threshold.value = -8;
-limiter.knee.value = 2;
-limiter.ratio.value = 12;
-limiter.attack.value = 0.002;
-limiter.release.value = 0.12;
-master.connect(limiter);
-limiter.connect(ctx.destination);
+const clip = ctx.createWaveShaper();
+// Soft clip with no lookahead. DynamicsCompressor delays the attack by several milliseconds.
+{
+  const n = 1025;
+  const curve = new Float32Array(n);
+  const drive = 2;
+  const norm = Math.tanh(drive);
+  for (let i = 0; i < n; i += 1) {
+    const x = (i / (n - 1)) * 2 - 1;
+    curve[i] = Math.tanh(x * drive) / norm;
+  }
+  clip.curve = curve;
+  clip.oversample = "none";
+}
+master.connect(clip);
+clip.connect(ctx.destination);
+
+let deviceAwake = false;
+
+function wakeDevice() {
+  if (deviceAwake) return;
+  deviceAwake = true;
+  // A silent loop keeps the output device from sleeping between hits.
+  // Waking it on the next key press is a large, extra delay.
+  const silence = ctx.createBuffer(1, 128, ctx.sampleRate);
+  const loop = ctx.createBufferSource();
+  const mute = ctx.createGain();
+  loop.buffer = silence;
+  loop.loop = true;
+  mute.gain.value = 0;
+  loop.connect(mute);
+  mute.connect(ctx.destination);
+  loop.start(0);
+}
 
 function storedNumber(key) {
   const raw = localStorage.getItem(key);
@@ -116,15 +153,16 @@ function flash(id) {
 
 function unlock() {
   if (ctx.state !== "running") ctx.resume();
+  wakeDevice();
 }
 
 function play(id, when = null, opts = {}) {
   const drum = BY_ID[id];
   if (!drum) return;
-  unlock();
-  if (opts.visual !== false) flash(id);
   const buffers = drum.buffers;
+  if (ctx.state !== "running") ctx.resume();
   if (!buffers || !buffers.length) return;
+  // Queue the sample before any DOM work. start(0) means "as soon as possible".
   const buffer = buffers[drum.cursor % buffers.length];
   drum.cursor = (drum.cursor || 0) + 1;
   const src = ctx.createBufferSource();
@@ -133,8 +171,9 @@ function play(id, when = null, opts = {}) {
   gain.gain.value = drum.gain;
   src.connect(gain);
   gain.connect(master);
-  const startAt = when == null ? ctx.currentTime : Math.max(when, ctx.currentTime);
-  src.start(startAt);
+  if (when == null) src.start(0);
+  else src.start(Math.max(when, ctx.currentTime));
+  wakeDevice();
   src._fromPlayback = Boolean(opts.fromPlayback);
   activeSources.add(src);
   src.onended = () => {
@@ -142,6 +181,7 @@ function play(id, when = null, opts = {}) {
     src.disconnect();
     gain.disconnect();
   };
+  if (opts.visual !== false) flash(id);
   if (opts.record !== false && recording) {
     events.push({ id, t: ctx.currentTime - recStart });
   }
@@ -150,9 +190,9 @@ function play(id, when = null, opts = {}) {
 function bindPad(el) {
   el.addEventListener("pointerdown", (e) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    play(el.dataset.drum);
     pointers.add(e.pointerId);
     e.preventDefault();
-    play(el.dataset.drum);
   }, { passive: false });
 
   el.addEventListener("pointerenter", (e) => {
@@ -177,12 +217,14 @@ window.addEventListener("keydown", (e) => {
   if (target instanceof Element) {
     const field = target.closest("input, textarea, select");
     if (field && field.getAttribute("type") !== "range") return;
+  }
+  play(id);
+  e.preventDefault();
+  if (target instanceof Element) {
     const button = target.closest("button");
     if (button) button.blur();
   }
-  e.preventDefault();
-  play(id);
-});
+}, true);
 
 document.addEventListener("touchmove", (e) => {
   if (e.target instanceof Element && e.target.closest('input[type="range"]')) return;

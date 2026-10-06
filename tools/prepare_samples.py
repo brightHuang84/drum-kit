@@ -95,11 +95,13 @@ def trim_normalize(samples: array.array, max_dur: float) -> array.array:
         if abs(s) >= threshold:
             onset = i
             break
-    preroll = int(0.002 * RATE)
+    # Keep a fraction of a millisecond so the cut does not click, and no more.
+    # A 2 ms preroll was audible as late attacks on a drum kit.
+    preroll = int(0.0002 * RATE)
     start = max(0, onset - preroll)
     end = min(len(samples), start + int(max_dur * RATE))
     chunk = array.array("h", samples[start:end])
-    fade_in = min(len(chunk), int(0.0004 * RATE))
+    fade_in = min(len(chunk), max(1, int(0.0001 * RATE)))
     for i in range(fade_in):
         chunk[i] = int(chunk[i] * (i / fade_in))
     fade_out = min(len(chunk), int(0.045 * RATE))
