@@ -1,16 +1,26 @@
+// Keys follow the kit from the player's seat, left to right. Drums that take
+// two sticks get two adjacent keys. QWERTY, top row then home row:
+//   Q W crash | E R hi tom | T Y mid tom | U I ride
+//   A S closed | D open | F G snare | space kick | J K floor
 const PIECES = [
-  { id: "crash", kind: "cymbal", cls: "crash", code: "KeyQ", key: "Q", short: "吊镲", name: "吊镲", en: "Crash", aria: "吊镲 Crash，按 Q", gain: 0.7, files: ["samples/crash-1.wav", "samples/crash-2.wav"] },
-  { id: "hhOpen", kind: "hat", cls: "hh-open", code: "KeyD", key: "D", short: "开镲", name: "开镲", en: "Open", aria: "开镲 Open hi-hat，按 D", gain: 0.66, files: ["samples/hh-open-1.wav", "samples/hh-open-2.wav"] },
-  { id: "hhClosed", kind: "hat", cls: "hh-closed", code: "KeyA", key: "A", short: "闭镲", name: "闭镲", en: "Closed", aria: "闭镲 Closed hi-hat，按 A", gain: 0.58, files: ["samples/hh-closed-1.wav", "samples/hh-closed-2.wav"] },
-  { id: "tomHigh", kind: "drum", cls: "tom-high drum", code: "KeyJ", key: "J", short: "高嗵", name: "高音嗵鼓", en: "Hi Tom", aria: "高音嗵鼓 Hi tom，按 J", gain: 0.86, files: ["samples/tom-high-1.wav", "samples/tom-high-2.wav"] },
-  { id: "tomMid", kind: "drum", cls: "tom-mid drum", code: "KeyK", key: "K", short: "中嗵", name: "中音嗵鼓", en: "Mid Tom", aria: "中音嗵鼓 Mid tom，按 K", gain: 0.8, files: ["samples/tom-mid-1.wav", "samples/tom-mid-2.wav"] },
-  { id: "ride", kind: "cymbal", cls: "ride", code: "KeyO", key: "O", short: "叮叮", name: "叮叮镲", en: "Ride", aria: "叮叮镲 Ride，按 O", gain: 0.98, files: ["samples/ride-1.wav", "samples/ride-2.wav"] },
-  { id: "snare", kind: "snare", cls: "snare", code: "KeyS", key: "S", short: "军鼓", name: "军鼓", en: "Snare", aria: "军鼓 Snare，按 S", gain: 0.92, files: ["samples/snare-1.wav", "samples/snare-2.wav"] },
-  { id: "kick", kind: "kick", cls: "kick", code: "Space", key: "空格", short: "底鼓", name: "底鼓", en: "Kick", aria: "底鼓 Kick，空格键", gain: 0.8, files: ["samples/kick-1.wav", "samples/kick-2.wav"] },
-  { id: "tomFloor", kind: "floor", cls: "floor", code: "KeyL", key: "L", short: "落地", name: "落地嗵鼓", en: "Floor", aria: "落地嗵鼓 Floor tom，按 L", gain: 0.74, files: ["samples/tom-floor-1.wav", "samples/tom-floor-2.wav"] },
+  { id: "crash", kind: "cymbal", cls: "crash", codes: ["KeyQ", "KeyW"], keys: ["Q", "W"], short: "吊镲", name: "吊镲", en: "Crash", aria: "吊镲 Crash，按 Q 或 W", gain: 0.7, files: ["samples/crash-1.wav", "samples/crash-2.wav"] },
+  { id: "hhOpen", kind: "hat", cls: "hh-open", codes: ["KeyD"], keys: ["D"], short: "开镲", name: "开镲", en: "Open", aria: "开镲 Open hi-hat，按 D", gain: 0.66, files: ["samples/hh-open-1.wav", "samples/hh-open-2.wav"] },
+  { id: "hhClosed", kind: "hat", cls: "hh-closed", codes: ["KeyA", "KeyS"], keys: ["A", "S"], short: "闭镲", name: "闭镲", en: "Closed", aria: "闭镲 Closed hi-hat，按 A 或 S", gain: 0.58, files: ["samples/hh-closed-1.wav", "samples/hh-closed-2.wav"] },
+  { id: "tomHigh", kind: "drum", cls: "tom-high drum", codes: ["KeyE", "KeyR"], keys: ["E", "R"], short: "高嗵", name: "高音嗵鼓", en: "Hi Tom", aria: "高音嗵鼓 Hi tom，按 E 或 R", gain: 0.86, files: ["samples/tom-high-1.wav", "samples/tom-high-2.wav"] },
+  { id: "tomMid", kind: "drum", cls: "tom-mid drum", codes: ["KeyT", "KeyY"], keys: ["T", "Y"], short: "中嗵", name: "中音嗵鼓", en: "Mid Tom", aria: "中音嗵鼓 Mid tom，按 T 或 Y", gain: 0.8, files: ["samples/tom-mid-1.wav", "samples/tom-mid-2.wav"] },
+  { id: "ride", kind: "cymbal", cls: "ride", codes: ["KeyU", "KeyI"], keys: ["U", "I"], short: "叮叮", name: "叮叮镲", en: "Ride", aria: "叮叮镲 Ride，按 U 或 I", gain: 0.98, files: ["samples/ride-1.wav", "samples/ride-2.wav"] },
+  { id: "snare", kind: "snare", cls: "snare", codes: ["KeyF", "KeyG"], keys: ["F", "G"], short: "军鼓", name: "军鼓", en: "Snare", aria: "军鼓 Snare，按 F 或 G", gain: 0.92, files: ["samples/snare-1.wav", "samples/snare-2.wav"] },
+  { id: "kick", kind: "kick", cls: "kick", codes: ["Space"], keys: ["空格"], short: "底鼓", name: "底鼓", en: "Kick", aria: "底鼓 Kick，空格键", gain: 0.8, files: ["samples/kick-1.wav", "samples/kick-2.wav"] },
+  { id: "tomFloor", kind: "floor", cls: "floor", codes: ["KeyJ", "KeyK"], keys: ["J", "K"], short: "落地", name: "落地嗵鼓", en: "Floor", aria: "落地嗵鼓 Floor tom，按 J 或 K", gain: 0.74, files: ["samples/tom-floor-1.wav", "samples/tom-floor-2.wav"] },
 ];
 
-const BY_CODE = Object.fromEntries(PIECES.map((d) => [d.code, d.id]));
+const BY_CODE = {};
+for (const drum of PIECES) {
+  for (const code of drum.codes) {
+    if (BY_CODE[code]) throw new Error(`duplicate drum key ${code}`);
+    BY_CODE[code] = drum.id;
+  }
+}
 const BY_ID = Object.fromEntries(PIECES.map((d) => [d.id, d]));
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -213,7 +223,8 @@ function lugs(count) {
 }
 
 function badge(d) {
-  return `<span class="badge"><kbd>${d.key}</kbd><span class="names"><b>${d.short}</b><small>${d.en}</small></span></span>`;
+  const keys = d.keys.map((key) => `<kbd>${key}</kbd>`).join("");
+  return `<span class="badge"><span class="keys">${keys}</span><span class="names"><b>${d.short}</b><small>${d.en}</small></span></span>`;
 }
 
 function render(d) {
@@ -298,6 +309,8 @@ function play(id, when = null, opts = {}) {
     }
     return;
   }
+  // Either key of a pair advances the same round-robin, so F-G-F-G
+  // (or any sticking) swaps the two samples and the hits overlap.
   const buffer = buffers[drum.cursor % buffers.length];
   drum.cursor = (drum.cursor || 0) + 1;
   const src = ctx.createBufferSource();
