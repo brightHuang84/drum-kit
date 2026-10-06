@@ -14,22 +14,25 @@ const BY_CODE = Object.fromEntries(PIECES.map((d) => [d.code, d.id]));
 const BY_ID = Object.fromEntries(PIECES.map((d) => [d.id, d]));
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
 
-function createContext() {
-  // "interactive" asked Chrome for ~32ms of output latency; 0 asks for the
-  // smallest buffer the device will allow (about 8ms on the same machine).
+function tryAudioContext(options) {
   try {
-    return new AudioCtx({ latencyHint: 0 });
+    return new AudioCtx(options);
   } catch (err) {
-    return new AudioCtx();
+    return null;
   }
 }
 
-const ctx = createContext();
-const master = ctx.createGain();
-const clip = ctx.createWaveShaper();
-// Soft clip with no lookahead. DynamicsCompressor delays the attack by several milliseconds.
-{
+// Desktop Chrome honors latencyHint 0 (~8ms output here, vs ~32ms for
+// "interactive"). On Android, 0 asks for a buffer smaller than the HAL burst.
+// Samsung Chrome often rejects that and opens a deep output stream instead,
+// so every hit is late. "interactive" uses the device's own low-latency size.
+// sampleRate is left at the output device rate. Forcing 44100 would turn on
+// Android Chrome's destination resampler and add another buffer.
+const DEFAULT_HINT = IS_ANDROID ? "interactive" : "0";
+
+const CLIP_CURVE = (() => {
   const n = 1025;
   const curve = new Float32Array(n);
   const drive = 2;
@@ -38,28 +41,125 @@ const clip = ctx.createWaveShaper();
     const x = (i / (n - 1)) * 2 - 1;
     curve[i] = Math.tanh(x * drive) / norm;
   }
-  clip.curve = curve;
-  clip.oversample = "none";
-}
-master.connect(clip);
-clip.connect(ctx.destination);
+  return curve;
+})();
 
-let deviceAwake = false;
+let ctx = null;
+let master = null;
+let audioHint = DEFAULT_HINT;
+let lockedRate = 0;
+let keepAlive = null;
+let userGesture = false;
+let resumeInFlight = false;
+let resumeCalls = 0;
+let currentVolume = 0.82;
+let samplesReady = false;
+let diagEl = null;
+const stateLog = [];
+const pendingClose = [];
+const lastHit = {
+  type: "—",
+  jsMs: null,
+  resumed: false,
+  resumeMs: null,
+  state: "—",
+};
+
+function latencyOptions(hint) {
+  const options = { latencyHint: hint === "0" ? 0 : hint };
+  if (lockedRate) options.sampleRate = lockedRate;
+  return options;
+}
+
+function installContext(hint) {
+  const next = tryAudioContext(latencyOptions(hint))
+    || tryAudioContext(lockedRate ? { sampleRate: lockedRate } : undefined)
+    || new AudioCtx();
+  if (!lockedRate) lockedRate = next.sampleRate;
+  const previous = ctx;
+  if (keepAlive) {
+    try { keepAlive.onended = null; keepAlive.stop(); } catch (err) { /* already stopped */ }
+    keepAlive = null;
+  }
+  if (previous && previous !== next) {
+    previous.onstatechange = null;
+    activeSources.clear();
+    if (samplesReady) previous.close();
+    else pendingClose.push(previous);
+  }
+  ctx = next;
+  audioHint = hint;
+  master = ctx.createGain();
+  master.gain.value = currentVolume;
+  const clip = ctx.createWaveShaper();
+  clip.curve = CLIP_CURVE;
+  clip.oversample = "none";
+  master.connect(clip);
+  clip.connect(ctx.destination);
+  ctx.onstatechange = () => handleStateChange();
+  stateLog.unshift(`${hint}:${ctx.state}`);
+  if (stateLog.length > 6) stateLog.pop();
+}
 
 function wakeDevice() {
-  if (deviceAwake) return;
-  deviceAwake = true;
-  // A silent loop keeps the output device from sleeping between hits.
-  // Waking it on the next key press is a large, extra delay.
-  const silence = ctx.createBuffer(1, 128, ctx.sampleRate);
+  if (keepAlive || !ctx) return;
+  // Exact zeros let Samsung's AudioTrack go to standby between hits. Opening
+  // it again on the next hit can take about a second, while state still
+  // reads "running". This noise is about -67 dBFS.
+  const length = 4096;
+  const noise = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = noise.getChannelData(0);
+  let seed = 123456789;
+  for (let i = 0; i < length; i += 1) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    data[i] = (seed / 4294967296 * 2 - 1) * 0.00045;
+  }
   const loop = ctx.createBufferSource();
-  const mute = ctx.createGain();
-  loop.buffer = silence;
+  loop.buffer = noise;
   loop.loop = true;
-  mute.gain.value = 0;
-  loop.connect(mute);
-  mute.connect(ctx.destination);
+  loop.connect(ctx.destination);
   loop.start(0);
+  keepAlive = loop;
+  loop.onended = () => {
+    if (keepAlive === loop) keepAlive = null;
+  };
+}
+
+function armContext() {
+  if (!ctx || ctx.state === "running") return false;
+  if (resumeInFlight) return true;
+  resumeInFlight = true;
+  resumeCalls += 1;
+  lastHit.resumeMs = null;
+  const started = performance.now();
+  const pending = ctx.resume();
+  const finish = () => {
+    resumeInFlight = false;
+    lastHit.resumeMs = performance.now() - started;
+    if (diagEl && !diagEl.hidden) paintDiag();
+  };
+  if (pending && typeof pending.then === "function") pending.then(finish, finish);
+  else finish();
+  return true;
+}
+
+let lastAutoResume = 0;
+
+function handleStateChange() {
+  if (!ctx) return;
+  stateLog.unshift(ctx.state);
+  if (stateLog.length > 6) stateLog.pop();
+  if (ctx.state === "running") {
+    resumeInFlight = false;
+    if (userGesture) wakeDevice();
+  } else if (userGesture && (ctx.state === "suspended" || ctx.state === "interrupted")) {
+    const now = performance.now();
+    if (now - lastAutoResume > 500) {
+      lastAutoResume = now;
+      armContext();
+    }
+  }
+  if (diagEl && !diagEl.hidden) paintDiag();
 }
 
 function storedNumber(key) {
@@ -71,7 +171,7 @@ function storedNumber(key) {
 
 const savedVolume = storedNumber("drumkit-volume");
 const savedBpm = storedNumber("drumkit-bpm");
-master.gain.value = savedVolume == null ? 0.82 : savedVolume / 100;
+if (savedVolume != null) currentVolume = savedVolume / 100;
 
 const kit = document.getElementById("kit");
 const veil = document.getElementById("veil");
@@ -87,6 +187,7 @@ const volumeInput = document.getElementById("volume");
 const fsBtn = document.getElementById("fullscreen");
 const about = document.getElementById("about");
 const rotateNote = document.getElementById("rotate-note");
+diagEl = document.getElementById("diag");
 
 if (savedVolume != null) volumeInput.value = String(savedVolume);
 if (savedBpm != null && savedBpm >= 40 && savedBpm <= 220) {
@@ -103,6 +204,7 @@ let playbackGen = 0;
 const activeSources = new Set();
 const pointers = new Set();
 const slideAt = new Map();
+installContext(DEFAULT_HINT);
 
 function lugs(count) {
   let html = '<span class="lugs">';
@@ -141,28 +243,61 @@ function say(text) {
   live.textContent = text;
 }
 
+const pieceEls = new Map();
+kit.querySelectorAll(".piece").forEach((el) => pieceEls.set(el.dataset.drum, el));
+
 function flash(id) {
-  const el = kit.querySelector(`[data-drum="${id}"]`);
+  const el = pieceEls.get(id);
   if (!el) return;
   el.classList.remove("is-hit");
-  void el.offsetWidth;
-  el.classList.add("is-hit");
-  clearTimeout(el._hitTimer);
-  el._hitTimer = setTimeout(() => el.classList.remove("is-hit"), 170);
+  // Restart the hit animation on the next frame. Reading layout here
+  // (offsetWidth) would block the rest of this input turn.
+  if (el._flashQueued) return;
+  el._flashQueued = true;
+  requestAnimationFrame(() => {
+    el._flashQueued = false;
+    el.classList.add("is-hit");
+    clearTimeout(el._hitTimer);
+    el._hitTimer = setTimeout(() => el.classList.remove("is-hit"), 170);
+  });
 }
 
 function unlock() {
-  if (ctx.state !== "running") ctx.resume();
+  userGesture = true;
+  armContext();
   wakeDevice();
+}
+
+function noteHit(opts, scheduledAt, resumed, stateAtHit, started) {
+  if (!opts.eventType) return;
+  lastHit.type = opts.eventType;
+  lastHit.resumed = resumed;
+  lastHit.state = stateAtHit;
+  if (!resumed) lastHit.resumeMs = null;
+  if (started && typeof opts.timeStamp === "number") {
+    const delta = scheduledAt - opts.timeStamp;
+    lastHit.jsMs = delta >= -1 && delta < 5000 ? delta : null;
+  } else {
+    lastHit.jsMs = null;
+  }
+  if (diagEl && !diagEl.hidden) paintDiag();
 }
 
 function play(id, when = null, opts = {}) {
   const drum = BY_ID[id];
   if (!drum) return;
   const buffers = drum.buffers;
-  if (ctx.state !== "running") ctx.resume();
-  if (!buffers || !buffers.length) return;
-  // Queue the sample before any DOM work. start(0) means "as soon as possible".
+  const live = when == null;
+  if (live) userGesture = true;
+  const stateAtHit = ctx.state;
+  if (!buffers || !buffers.length) {
+    if (live) {
+      const resumed = armContext();
+      wakeDevice();
+      noteHit(opts, performance.now(), resumed, stateAtHit, false);
+    }
+    return;
+  }
   const buffer = buffers[drum.cursor % buffers.length];
   drum.cursor = (drum.cursor || 0) + 1;
   const src = ctx.createBufferSource();
@@ -171,9 +306,15 @@ function play(id, when = null, opts = {}) {
   gain.gain.value = drum.gain;
   src.connect(gain);
   gain.connect(master);
-  if (when == null) src.start(0);
+  // Schedule the sample before resume() or any DOM work. resume() is not
+  // awaited; on Android it can take hundreds of milliseconds, and it is
+  // skipped entirely once the context is already running.
+  const scheduledAt = performance.now();
+  if (live) src.start(0);
   else src.start(Math.max(when, ctx.currentTime));
-  wakeDevice();
+  const resumed = live ? armContext() : false;
+  if (live) wakeDevice();
+  noteHit(opts, scheduledAt, resumed, stateAtHit, true);
   src._fromPlayback = Boolean(opts.fromPlayback);
   activeSources.add(src);
   src.onended = () => {
@@ -187,25 +328,83 @@ function play(id, when = null, opts = {}) {
   }
 }
 
-function bindPad(el) {
-  el.addEventListener("pointerdown", (e) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    play(el.dataset.drum);
-    pointers.add(e.pointerId);
-    e.preventDefault();
-  }, { passive: false });
-
-  el.addEventListener("pointerenter", (e) => {
-    if (!pointers.has(e.pointerId)) return;
-    const stamp = `${el.dataset.drum}:${e.pointerId}`;
-    const now = performance.now();
-    if (now - (slideAt.get(stamp) || 0) < 70) return;
-    slideAt.set(stamp, now);
-    play(el.dataset.drum);
-  });
+function pieceFromTouch(touch, event, index) {
+  if (index === 0 && event.target instanceof Element) {
+    const direct = event.target.closest(".piece");
+    if (direct) return direct;
+  }
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  return el instanceof Element ? el.closest(".piece") : null;
 }
 
-kit.querySelectorAll(".piece").forEach(bindPad);
+const fingers = new Map();
+
+function slideHit(id, finger, eventType, timeStamp) {
+  const stamp = `${id}:${finger}`;
+  const now = performance.now();
+  if (now - (slideAt.get(stamp) || 0) < 70) return;
+  slideAt.set(stamp, now);
+  play(id, null, { eventType, timeStamp });
+}
+
+// touchstart is earlier than pointerdown on Android Chrome and iOS, and it
+// is the user-gesture those browsers require to resume audio. pointerdown
+// for touch is ignored so the same finger never plays twice.
+kit.addEventListener("touchstart", (e) => {
+  const touches = e.changedTouches;
+  for (let i = 0; i < touches.length; i += 1) {
+    const touch = touches[i];
+    const piece = pieceFromTouch(touch, e, i);
+    if (!piece) continue;
+    const id = piece.dataset.drum;
+    fingers.set(touch.identifier, id);
+    play(id, null, { eventType: "touchstart", timeStamp: e.timeStamp });
+    e.preventDefault();
+  }
+}, { capture: true, passive: false });
+
+kit.addEventListener("touchmove", (e) => {
+  const touches = e.changedTouches;
+  let onPad = false;
+  for (let i = 0; i < touches.length; i += 1) {
+    const touch = touches[i];
+    if (!fingers.has(touch.identifier)) continue;
+    onPad = true;
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const piece = el instanceof Element ? el.closest(".piece") : null;
+    const id = piece && piece.dataset.drum;
+    if (!id || fingers.get(touch.identifier) === id) continue;
+    fingers.set(touch.identifier, id);
+    slideHit(id, touch.identifier, "touchmove", e.timeStamp);
+  }
+  if (onPad) e.preventDefault();
+}, { capture: true, passive: false });
+
+function releaseTouches(e) {
+  for (let i = 0; i < e.changedTouches.length; i += 1) {
+    fingers.delete(e.changedTouches[i].identifier);
+  }
+}
+kit.addEventListener("touchend", releaseTouches, { passive: true });
+kit.addEventListener("touchcancel", releaseTouches, { passive: true });
+
+kit.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch") return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  const piece = e.target instanceof Element ? e.target.closest(".piece") : null;
+  if (!piece) return;
+  play(piece.dataset.drum, null, { eventType: "pointerdown", timeStamp: e.timeStamp });
+  pointers.add(e.pointerId);
+  e.preventDefault();
+});
+
+kit.addEventListener("pointermove", (e) => {
+  if (e.pointerType === "touch" || !pointers.has(e.pointerId)) return;
+  const piece = e.target instanceof Element ? e.target.closest(".piece") : null;
+  if (!piece) return;
+  const id = piece.dataset.drum;
+  slideHit(id, e.pointerId, "pointermove", e.timeStamp);
+});
 
 window.addEventListener("pointerup", (e) => pointers.delete(e.pointerId));
 window.addEventListener("pointercancel", (e) => pointers.delete(e.pointerId));
@@ -218,31 +417,13 @@ window.addEventListener("keydown", (e) => {
     const field = target.closest("input, textarea, select");
     if (field && field.getAttribute("type") !== "range") return;
   }
-  play(id);
+  play(id, null, { eventType: "keydown", timeStamp: e.timeStamp });
   e.preventDefault();
   if (target instanceof Element) {
     const button = target.closest("button");
     if (button) button.blur();
   }
 }, true);
-
-document.addEventListener("touchmove", (e) => {
-  if (e.target instanceof Element && e.target.closest('input[type="range"]')) return;
-  e.preventDefault();
-}, { passive: false });
-
-document.addEventListener("touchstart", (e) => {
-  if (e.touches.length > 1) e.preventDefault();
-}, { passive: false });
-
-let lastTap = 0;
-document.addEventListener("touchend", (e) => {
-  const now = Date.now();
-  if (now - lastTap < 320 && !(e.target instanceof Element && e.target.closest('input[type="range"], button'))) {
-    e.preventDefault();
-  }
-  lastTap = now;
-}, { passive: false });
 
 document.addEventListener("selectstart", (e) => {
   if (!(e.target instanceof Element && e.target.closest('input, textarea'))) e.preventDefault();
@@ -423,7 +604,11 @@ async function setMetronome(on) {
   metroLoop();
 }
 
-metroBtn.addEventListener("click", () => setMetronome(!metro.on));
+metroBtn.addEventListener("click", () => {
+  const next = !metro.on;
+  if (next) unlock();
+  setMetronome(next);
+});
 
 bpmInput.addEventListener("input", () => {
   bpmOut.textContent = bpmInput.value;
@@ -431,8 +616,8 @@ bpmInput.addEventListener("input", () => {
 });
 
 volumeInput.addEventListener("input", () => {
-  const value = Number(volumeInput.value) / 100;
-  master.gain.setTargetAtTime(value, ctx.currentTime, 0.015);
+  currentVolume = Number(volumeInput.value) / 100;
+  master.gain.setTargetAtTime(currentVolume, ctx.currentTime, 0.015);
   localStorage.setItem("drumkit-volume", volumeInput.value);
 });
 
@@ -479,18 +664,99 @@ document.getElementById("about-open").addEventListener("click", () => {
   if (typeof about.showModal === "function") about.showModal();
 });
 
+function fmtSec(sec) {
+  if (typeof sec !== "number" || !Number.isFinite(sec)) return "—";
+  return `${(sec * 1000).toFixed(1)} ms`;
+}
+
+function sampleProgress() {
+  let ready = 0;
+  let total = 0;
+  for (const drum of PIECES) {
+    total += drum.files.length;
+    ready += drum.buffers ? drum.buffers.length : 0;
+  }
+  return { ready, total };
+}
+
+function paintDiag() {
+  if (!diagEl) return;
+  const { ready, total } = sampleProgress();
+  const js = lastHit.jsMs == null ? "—" : `${lastHit.jsMs.toFixed(1)} ms`;
+  const resumeCost = lastHit.resumeMs == null ? "—" : `${lastHit.resumeMs.toFixed(0)} ms`;
+  diagEl.querySelector("[data-diag='readout']").textContent = [
+    `敲下时状态 ${lastHit.state} · 现在 ${ctx.state}`,
+    `采样 ${ready}/${total}${samplesReady ? "（已全部解码）" : "（解码中）"} · ${ctx.sampleRate} Hz`,
+    `模式 ${audioHint} · baseLatency ${fmtSec(ctx.baseLatency)} · outputLatency ${fmtSec(ctx.outputLatency)}`,
+    `上次 ${lastHit.type} · 事件到 start() ${js}`,
+    `这次 resume：${lastHit.resumed ? "是" : "否"} · resume 耗时 ${resumeCost} · 累计 ${resumeCalls} 次`,
+    stateLog.length ? `状态记录 ${stateLog.join(" ← ")}` : "",
+  ].filter(Boolean).join("\n");
+  diagEl.querySelectorAll("[data-hint]").forEach((btn) => {
+    btn.setAttribute("aria-pressed", btn.dataset.hint === audioHint ? "true" : "false");
+  });
+}
+
+let diagTimer = 0;
+function setDiag(on) {
+  if (!diagEl) return;
+  diagEl.hidden = !on;
+  const toggle = document.getElementById("diag-toggle");
+  if (toggle) toggle.textContent = on ? "关闭延迟诊断" : "延迟诊断";
+  window.clearInterval(diagTimer);
+  if (on) {
+    paintDiag();
+    diagTimer = window.setInterval(paintDiag, 400);
+  }
+}
+
+const diagToggle = document.getElementById("diag-toggle");
+const diagHide = document.getElementById("diag-hide");
+if (diagToggle) {
+  diagToggle.addEventListener("click", () => {
+    setDiag(true);
+    if (typeof about.close === "function") about.close();
+  });
+}
+if (diagHide) diagHide.addEventListener("click", () => setDiag(false));
+if (diagEl) {
+  diagEl.querySelectorAll("[data-hint]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      userGesture = true;
+      const metroWasOn = metro.on;
+      installContext(btn.dataset.hint);
+      armContext();
+      wakeDevice();
+      if (metroWasOn) {
+        metro.next = ctx.currentTime + 0.05;
+        metro.beat = 0;
+      }
+      paintDiag();
+    });
+  });
+}
+
 async function loadSamples() {
+  const decodeCtx = ctx;
   try {
     await Promise.all(PIECES.map(async (drum) => {
       drum.buffers = await Promise.all(drum.files.map(async (url) => {
-        const response = await fetch(url);
+        // Match the <link rel="preload" crossorigin> cache entry. A second
+        // mode would download every wav again.
+        const response = await fetch(url, { mode: "cors", credentials: "same-origin", cache: "force-cache" });
         if (!response.ok) throw new Error(url);
-        return ctx.decodeAudioData(await response.arrayBuffer());
+        return decodeCtx.decodeAudioData(await response.arrayBuffer());
       }));
       drum.cursor = 0;
     }));
+    samplesReady = true;
+    while (pendingClose.length) {
+      const old = pendingClose.pop();
+      try { old.close(); } catch (err) { /* already closed */ }
+    }
     veil.hidden = true;
     say("音色已加载，可以演奏");
+    if (diagEl && !diagEl.hidden) paintDiag();
   } catch (error) {
     veil.textContent = "音色加载失败。请用本地服务器或 GitHub Pages 打开，不要直接双击文件。";
     say(veil.textContent);
@@ -507,8 +773,17 @@ window.drumkit = {
   events: () => events.map((ev) => ({ ...ev })),
   isRecording: () => recording,
   isPlaying: () => playing,
-  loaded: () => PIECES.every((d) => d.buffers && d.buffers.length === d.files.length),
+  loaded: () => samplesReady,
   context: () => ctx,
+  hint: () => audioHint,
+  setHint: (hint) => {
+    userGesture = true;
+    installContext(hint);
+    armContext();
+    wakeDevice();
+    paintDiag();
+  },
+  lastHit: () => ({ ...lastHit, resumeCalls, state: ctx.state, log: stateLog.slice() }),
   startRecord,
   stopRecord: stopRecording,
   playBack,
