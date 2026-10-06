@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#120e0c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="description" content="用键盘或手指演奏的原声架子鼓。支持录音回放和节拍器。">
+  <title>架子鼓 Drum Kit</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/kit.css">
+  <script>
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener('gesturechange', function (e) { e.preventDefault(); }, { passive: false });
+  </script>
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <h1 class="title"><b>架子鼓</b><small>Drum Kit</small></h1>
+      <button type="button" id="record" aria-pressed="false">录音</button>
+      <button type="button" id="play" disabled>播放</button>
+      <button type="button" id="clear" disabled>清空</button>
+      <button type="button" id="metro" aria-pressed="false">节拍</button>
+      <span class="beats" id="beats" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <label class="slider">BPM
+        <input id="bpm" type="range" min="40" max="220" value="100" aria-label="节拍速度，每分钟拍数">
+        <output id="bpm-out" for="bpm">100</output>
+      </label>
+      <label class="slider">音量
+        <input id="volume" type="range" min="0" max="100" value="82" aria-label="音量">
+      </label>
+      <button type="button" id="fullscreen" aria-pressed="false">全屏</button>
+      <button type="button" id="about-open" aria-haspopup="dialog">关于</button>
+    </header>
+
+    <main class="stage">
+      <div class="kit-frame">
+        <div class="rug" aria-hidden="true"></div>
+        <div id="kit" class="kit" aria-label="架子鼓"></div>
+        <p id="veil" class="veil">正在加载鼓的音色…</p>
+      </div>
+    </main>
+  </div>
+
+  <div class="portrait-gate" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
+    <div class="gate-card">
+      <div class="phone" aria-hidden="true"><span></span></div>
+      <h2 id="rotate-title">请把手机横过来</h2>
+      <p>横屏时，整套鼓会铺满屏幕，每面鼓都够手指敲。</p>
+      <button type="button" id="go-landscape">进入全屏并横屏</button>
+      <p id="rotate-note">若手机没有跟着转，请关掉方向锁，再手动横握。</p>
+    </div>
+  </div>
+
+  <dialog id="about">
+    <h2>关于这套鼓</h2>
+    <p>用键盘或手指演奏。可以同时敲好几面，声音会叠在一起，不会互相切断。</p>
+    <table>
+      <thead><tr><th>键</th><th>鼓</th><th>English</th><th>哪只手</th></tr></thead>
+      <tbody>
+        <tr><td>A</td><td>闭镲</td><td>Closed hi-hat</td><td>左手</td></tr>
+        <tr><td>S</td><td>军鼓</td><td>Snare</td><td>左手</td></tr>
+        <tr><td>D</td><td>开镲</td><td>Open hi-hat</td><td>左手</td></tr>
+        <tr><td>Q</td><td>吊镲</td><td>Crash</td><td>左手向上</td></tr>
+        <tr><td>空格</td><td>底鼓</td><td>Kick</td><td>拇指</td></tr>
+        <tr><td>J</td><td>高音嗵鼓</td><td>Hi tom</td><td>右手</td></tr>
+        <tr><td>K</td><td>中音嗵鼓</td><td>Mid tom</td><td>右手</td></tr>
+        <tr><td>L</td><td>落地嗵鼓</td><td>Floor tom</td><td>右手</td></tr>
+        <tr><td>O</td><td>叮叮镲</td><td>Ride</td><td>右手向上</td></tr>
+      </tbody>
+    </table>
+    <p>「录音」记下你敲的每一下，再按「播放」按原来的时间放出来。节拍器不会被录进去。新的录音会换掉上一段。</p>
+    <p class="credit">音色来自 Virtuosity Drums（Versilian Studios 与 Karoryfer Samples），许可证为 CC0 1.0 公有领域。中音嗵鼓由高音嗵鼓采样降低四个半音得到。</p>
+    <form method="dialog"><button type="submit" value="close">关闭</button></form>
+  </dialog>
+
+  <p id="live" class="sr-only" role="status"></p>
+  <noscript><p class="noscript">需要打开 JavaScript 才能演奏。</p></noscript>
+  <script type="module" src="js/kit.js"></script>
+</body>
+</html>
