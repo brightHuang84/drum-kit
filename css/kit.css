@@ -82,6 +82,7 @@ button[aria-pressed="true"] {
   height: 100%;
   display: flex;
   flex-direction: column;
+  touch-action: manipulation;
 }
 
 .toolbar {
@@ -158,6 +159,7 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
   position: relative;
   width: min(100cqw, calc(100cqh * 2.35));
   height: min(100cqh, calc(100cqw / 2.35));
+  touch-action: none;
 }
 
 @supports not (width: 1cqw) {
@@ -660,6 +662,44 @@ dialog form { margin: 12px 0 0; text-align: right; }
   background: #3a1010;
   padding: 10px 12px;
   border-radius: 8px;
+}
+
+.diag {
+  position: fixed;
+  z-index: 36;
+  left: 0;
+  right: 0;
+  top: 0;
+  max-height: 46vh;
+  overflow: auto;
+  padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+  background: rgba(12, 9, 8, 0.94);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.45;
+  touch-action: manipulation;
+}
+
+.diag[hidden] { display: none; }
+
+.diag-bar,
+.diag-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.diag-readout {
+  white-space: pre-line;
+  margin: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.diag-note {
+  margin: 6px 0 0;
+  color: var(--muted);
 }
 
 @media (max-width: 760px) {

@@ -91,8 +91,24 @@
     </table>
     <p>「录音」记下你敲的每一下，再按「播放」按原来的时间放出来。节拍器不会被录进去。新的录音会换掉上一段。</p>
     <p class="credit">音色来自 Virtuosity Drums（Versilian Studios 与 Karoryfer Samples），许可证为 CC0 1.0 公有领域。中音嗵鼓由高音嗵鼓采样降低四个半音得到。</p>
+    <p><button type="button" id="diag-toggle">延迟诊断</button></p>
     <form method="dialog"><button type="submit" value="close">关闭</button></form>
   </dialog>
+
+  <aside id="diag" class="diag" hidden>
+    <div class="diag-bar">
+      <b>延迟诊断</b>
+      <button type="button" id="diag-hide">收起</button>
+    </div>
+    <p class="diag-readout" data-diag="readout"></p>
+    <div class="diag-modes">
+      <button type="button" data-hint="interactive">interactive</button>
+      <button type="button" data-hint="0">0</button>
+      <button type="button" data-hint="playback">playback</button>
+    </div>
+    <p class="diag-note">蓝牙耳机或蓝牙音箱会增加 100–300 毫秒延迟，网页无法去掉。请改用手机扬声器或有线耳机再听。</p>
+    <p class="diag-note">每次敲击都会刷新上面的数字。若「敲下时状态」不是 running，或 resume 耗时接近 1 秒，就是系统把音频休眠了。若状态一直是 running，而且「事件到 start()」只有几毫秒，延迟在输出设备上：看 outputLatency，并用上面三个按钮换延迟模式对比。</p>
+  </aside>
 
   <p id="live" class="sr-only" role="status"></p>
   <noscript><p class="noscript">需要打开 JavaScript 才能演奏。</p></noscript>
