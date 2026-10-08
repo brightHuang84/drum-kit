@@ -142,6 +142,56 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
 .beats i.on { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
 .beats i.on.accent { background: #fff4cc; }
 
+.backing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 4px max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left));
+  background: rgba(18, 14, 12, 0.96);
+  border-bottom: 1px solid rgba(255, 220, 160, 0.12);
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+
+.backing.is-drop {
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+
+.backing select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  max-width: 16em;
+}
+
+.backing-name {
+  flex: 1 1 8em;
+  min-width: 6em;
+  max-width: 22em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.backing-time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+#backing-seek { width: 120px; }
+
+.backing .narrow { display: none; }
+
 .stage {
   flex: 1;
   min-height: 0;
@@ -709,6 +759,24 @@ dialog form { margin: 12px 0 0; text-align: right; }
   input[type="range"] { width: 58px; }
   button { padding: 6px 8px; }
   .toolbar { gap: 4px; }
+  .backing .wide { display: none; }
+  .backing .narrow { display: inline; }
+  #backing-seek { width: 88px; }
+}
+
+@media (max-height: 520px) {
+  .backing { gap: 4px; min-height: 34px; }
+  .backing select { max-width: 8em; }
+  .backing-name { min-width: 4em; max-width: 9em; }
+  #backing-seek { width: 72px; }
+  .backing .slider input[type="range"] { width: 52px; }
+}
+
+dialog kbd {
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 
 @media (prefers-reduced-motion: reduce) {

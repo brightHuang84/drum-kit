@@ -26,3 +26,12 @@ CC0 允许任何人复制、修改、发行和使用这些采样，包括商业�
 | `tom-mid-1.wav` `tom-mid-2.wav` | 同一条高音嗵鼓采样，降低四个半音。原库没有单独的中音嗵鼓。 |
 
 重新生成：在仓库根目录运行 `python3 tools/prepare_samples.py`（需要 Python 3 和 ffmpeg）。
+
+## 内置伴奏
+
+两段无鼓伴奏，作者 **Tozan**，在 OpenGameArt 以 **CC0 1.0** 发布。上游是 16 kHz Vorbis。这里用 ffmpeg 转成单声道 44.1 kHz、64 kbps 的 MP3 放进页面，旋律没有改。播放时由浏览器解码进同一条音频上下文。
+
+| 文件 | 内容 | 来源 |
+| --- | --- | --- |
+| `backing/peaceful3.mp3` | 钢琴与无品贝斯，约 1 分 47 秒 | <https://opengameart.org/content/peaceful-3> |
+| `backing/bgmusic1.mp3` | 钢琴和弦、钟与无品贝斯，约 2 分 16 秒 | <https://opengameart.org/content/background-music-1> |

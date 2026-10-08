@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#120e0c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="description" content="用键盘或手指演奏的原声架子鼓。支持录音回放和节拍器。">
+  <meta name="description" content="用键盘或手指演奏的原声架子鼓。可以跟自己的伴奏，也可以录音回放和开节拍器。">
   <title>架子鼓 Drum Kit</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/kit.css">
@@ -53,6 +53,29 @@
       <button type="button" id="about-open" aria-haspopup="dialog">关于</button>
     </header>
 
+    <div class="backing" id="backing">
+      <input id="backing-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.oga,.m4a,.aac,.flac,.webm,.mp4" hidden>
+      <button type="button" id="backing-open"><span class="wide">打开伴奏</span><span class="narrow">打开</span></button>
+      <select id="backing-pick" aria-label="内置伴奏">
+        <option value="">内置曲目</option>
+        <option value="backing/peaceful3.mp3">平静 · 钢琴与贝斯</option>
+        <option value="backing/bgmusic1.mp3">和弦 · 钢琴、钟与贝斯</option>
+      </select>
+      <span class="backing-name" id="backing-name">把音频拖到这里，或点「打开」</span>
+      <button type="button" id="backing-toggle" disabled aria-label="播放伴奏">播放</button>
+      <button type="button" id="backing-stop" disabled>停止</button>
+      <span class="backing-time"><span id="backing-now">0:00</span> / <span id="backing-dur">0:00</span></span>
+      <input id="backing-seek" type="range" min="0" max="10000" value="0" disabled aria-label="伴奏进度">
+      <button type="button" id="backing-loop" aria-pressed="false" title="快捷键 L">循环</button>
+      <label class="slider">伴奏
+        <input id="backing-volume" type="range" min="0" max="100" value="70" aria-label="伴奏音量">
+      </label>
+      <label class="slider">速度
+        <input id="backing-rate" type="range" min="50" max="125" step="5" value="100" aria-label="伴奏速度">
+        <output id="backing-rate-out" for="backing-rate">1.00×</output>
+      </label>
+    </div>
+
     <main class="stage">
       <div class="kit-frame">
         <div class="rug" aria-hidden="true"></div>
@@ -90,6 +113,8 @@
       </tbody>
     </table>
     <p>「录音」记下你敲的每一下，再按「播放」按原来的时间放出来。节拍器不会被录进去。新的录音会换掉上一段。</p>
+    <p>伴奏可以跟自己的歌，也可以选内置的两段无鼓音乐。点「打开伴奏」，或把 mp3、wav、ogg、m4a 等文件拖进页面。文件只留在这台浏览器里，不会上传；上次选的曲会记在本地，刷新后还在。播放、暂停、停止、进度、循环都有。伴奏音量和速度跟鼓分开，速度从 0.5 倍到 1.25 倍，音高也会一起变。</p>
+    <p>伴奏的快捷键不占用鼓键：<kbd>B</kbd> 播放或暂停，<kbd>N</kbd> 停止，<kbd>L</kbd> 循环，<kbd>[</kbd> <kbd>]</kbd> 后退或前进 5 秒，<kbd>-</kbd> <kbd>=</kbd> 调节速度。录音时如果伴奏正在放，会记下当时的位置；播放这段录音时，伴奏从那个位置一起开始。节拍器可以同时开着。</p>
     <p class="credit">音色来自 Virtuosity Drums（Versilian Studios 与 Karoryfer Samples），许可证为 CC0 1.0 公有领域。中音嗵鼓由高音嗵鼓采样降低四个半音得到。</p>
     <p><button type="button" id="diag-toggle">延迟诊断</button></p>
     <form method="dialog"><button type="submit" value="close">关闭</button></form>
