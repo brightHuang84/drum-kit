@@ -23,6 +23,8 @@ for (const drum of PIECES) {
 }
 const BY_ID = Object.fromEntries(PIECES.map((d) => [d.id, d]));
 
+import { createBacking } from "./backing.js";
+
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
 
@@ -82,6 +84,7 @@ function latencyOptions(hint) {
 }
 
 function installContext(hint) {
+  const carry = backing.capture();
   const next = tryAudioContext(latencyOptions(hint))
     || tryAudioContext(lockedRate ? { sampleRate: lockedRate } : undefined)
     || new AudioCtx();
@@ -106,6 +109,7 @@ function installContext(hint) {
   clip.oversample = "none";
   master.connect(clip);
   clip.connect(ctx.destination);
+  backing.mount(ctx, carry);
   ctx.onstatechange = () => handleStateChange();
   stateLog.unshift(`${hint}:${ctx.state}`);
   if (stateLog.length > 6) stateLog.pop();
@@ -208,13 +212,25 @@ if (savedBpm != null && savedBpm >= 40 && savedBpm <= 220) {
 let events = [];
 let recording = false;
 let recStart = 0;
+let takeBacking = null;
 let recFrame = 0;
 let playing = false;
 let playbackGen = 0;
 const activeSources = new Set();
 const pointers = new Set();
 const slideAt = new Map();
+const backing = createBacking({
+  getCtx: () => ctx,
+  unlock: () => {
+    userGesture = true;
+    armContext();
+    wakeDevice();
+  },
+  say,
+});
+
 installContext(DEFAULT_HINT);
+backing.restore();
 
 function lugs(count) {
   let html = '<span class="lugs">';
@@ -423,6 +439,10 @@ window.addEventListener("pointerup", (e) => pointers.delete(e.pointerId));
 window.addEventListener("pointercancel", (e) => pointers.delete(e.pointerId));
 
 window.addEventListener("keydown", (e) => {
+  if (backing.onKeydown(e)) {
+    e.preventDefault();
+    return;
+  }
   const id = BY_CODE[e.code];
   if (!id) return;
   const target = e.target;
@@ -472,6 +492,7 @@ async function startRecord() {
   events = [];
   recording = true;
   recStart = ctx.currentTime;
+  takeBacking = backing.markForRecord();
   recordBtn.textContent = "● 0:00";
   updateTransport();
   say("开始录音");
@@ -501,6 +522,7 @@ recordBtn.addEventListener("click", () => {
 function stopPlayback() {
   playbackGen += 1;
   playing = false;
+  backing.stopTake();
   for (const src of activeSources) {
     if (!src._fromPlayback) continue;
     try { src.stop(); } catch { /* already stopped */ }
@@ -525,6 +547,8 @@ function playBack() {
   const start = ctx.currentTime + 0.06;
   const plan = events.map((ev) => ({ id: ev.id, when: start + ev.t, shown: false }));
   for (const ev of plan) play(ev.id, ev.when, { record: false, visual: false, fromPlayback: true });
+  const mark = takeBacking;
+  backing.playWithTake(mark, start, () => gen === playbackGen);
   const endAt = plan[plan.length - 1].when + 0.2;
   updateTransport();
   say("正在播放录音");
@@ -558,6 +582,7 @@ clearBtn.addEventListener("click", () => {
   stopPlayback();
   if (recording) stopRecording();
   events = [];
+  takeBacking = null;
   updateTransport();
   say("已清空录音");
 });
@@ -801,4 +826,7 @@ window.drumkit = {
   stopRecord: stopRecording,
   playBack,
   clearRecording: () => clearBtn.click(),
+  loadBackingFile: (file) => backing.loadFile(file),
+  loadBackingUrl: (url, name) => backing.loadUrl(url, name),
+  backing: () => backing.debug(),
 };
