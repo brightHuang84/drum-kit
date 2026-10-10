@@ -24,6 +24,7 @@ for (const drum of PIECES) {
 const BY_ID = Object.fromEntries(PIECES.map((d) => [d.id, d]));
 
 import { createBacking } from "./backing.js";
+import { createPractice } from "./practice.js";
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
@@ -84,6 +85,7 @@ function latencyOptions(hint) {
 }
 
 function installContext(hint) {
+  if (practice) practice.suspend();
   const carry = backing.capture();
   const next = tryAudioContext(latencyOptions(hint))
     || tryAudioContext(lockedRate ? { sampleRate: lockedRate } : undefined)
@@ -219,6 +221,7 @@ let playbackGen = 0;
 const activeSources = new Set();
 const pointers = new Set();
 const slideAt = new Map();
+let practice = null;
 const backing = createBacking({
   getCtx: () => ctx,
   unlock: () => {
@@ -341,6 +344,7 @@ function play(id, when = null, opts = {}) {
   const scheduledAt = performance.now();
   if (live) src.start(0);
   else src.start(Math.max(when, ctx.currentTime));
+  if (live && practice) practice.onHit(id);
   const resumed = live ? armContext() : false;
   if (live) wakeDevice();
   noteHit(opts, scheduledAt, resumed, stateAtHit, true);
@@ -439,6 +443,10 @@ window.addEventListener("pointerup", (e) => pointers.delete(e.pointerId));
 window.addEventListener("pointercancel", (e) => pointers.delete(e.pointerId));
 
 window.addEventListener("keydown", (e) => {
+  if (practice && practice.onKeydown(e)) {
+    e.preventDefault();
+    return;
+  }
   if (backing.onKeydown(e)) {
     e.preventDefault();
     return;
@@ -624,7 +632,8 @@ function metroLoop() {
   metro.timer = window.setTimeout(metroLoop, 60);
 }
 
-async function setMetronome(on) {
+async function setMetronome(on, quiet) {
+  if (on && practice) practice.suspend();
   metro.on = on;
   metroBtn.setAttribute("aria-pressed", on ? "true" : "false");
   metroBtn.textContent = on ? "节拍开" : "节拍";
@@ -632,7 +641,7 @@ async function setMetronome(on) {
   if (!on) {
     window.clearTimeout(metro.timer);
     beatsEl.querySelectorAll("i").forEach((dot) => dot.classList.remove("on", "accent"));
-    say("节拍器已关闭");
+    if (!quiet) say("节拍器已关闭");
     return;
   }
   await ctx.resume();
@@ -646,6 +655,19 @@ metroBtn.addEventListener("click", () => {
   const next = !metro.on;
   if (next) unlock();
   setMetronome(next);
+});
+
+practice = createPractice({
+  drums: PIECES,
+  getCtx: () => ctx,
+  master: () => master,
+  play,
+  flash,
+  unlock,
+  say,
+  stopMetronome: () => {
+    if (metro.on) setMetronome(false, true);
+  },
 });
 
 bpmInput.addEventListener("input", () => {
@@ -829,4 +851,5 @@ window.drumkit = {
   loadBackingFile: (file) => backing.loadFile(file),
   loadBackingUrl: (url, name) => backing.loadUrl(url, name),
   backing: () => backing.debug(),
+  practice: () => (practice ? practice.debug() : null),
 };

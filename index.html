@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#120e0c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="description" content="用键盘或手指演奏的原声架子鼓。可以跟自己的伴奏，也可以录音回放和开节拍器。">
+  <meta name="description" content="用键盘或手指演奏的原声架子鼓。可以跟鼓谱练习、放自己的伴奏，也可以录音回放和开节拍器。">
   <title>架子鼓 Drum Kit</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/kit.css">
@@ -41,6 +41,7 @@
       <button type="button" id="play" disabled>播放</button>
       <button type="button" id="clear" disabled>清空</button>
       <button type="button" id="metro" aria-pressed="false">节拍</button>
+      <button type="button" id="practice-open" aria-pressed="false" aria-expanded="false" aria-controls="practice">鼓谱</button>
       <span class="beats" id="beats" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       <label class="slider">BPM
         <input id="bpm" type="range" min="40" max="220" value="100" aria-label="节拍速度，每分钟拍数">
@@ -75,6 +76,31 @@
         <output id="backing-rate-out" for="backing-rate">1.00×</output>
       </label>
     </div>
+
+    <section class="practice" id="practice" hidden>
+      <div class="practice-controls">
+        <button type="button" id="practice-close">收起</button>
+        <select id="practice-lesson" aria-label="练习曲"></select>
+        <button type="button" id="practice-start" aria-pressed="false" title="快捷键 C">练习</button>
+        <button type="button" id="practice-listen" aria-pressed="false" title="快捷键 V">试听</button>
+        <label class="slider">BPM
+          <input id="practice-bpm" type="range" min="40" max="160" value="60" aria-label="练习速度，每分钟拍数">
+          <output id="practice-bpm-out" for="practice-bpm">60</output>
+        </label>
+        <label class="slider">判定
+          <input id="practice-window" type="range" min="40" max="160" step="5" value="100" aria-label="判定窗口，毫秒">
+          <output id="practice-window-out" for="practice-window">±100</output>
+        </label>
+        <label class="slider">校准
+          <input id="practice-offset" type="range" min="-80" max="80" step="5" value="0" aria-label="延迟校准，毫秒">
+          <output id="practice-offset-out" for="practice-offset">0</output>
+        </label>
+        <span id="practice-score" class="practice-score">准备好了</span>
+        <span id="practice-extra" class="practice-extra"></span>
+      </div>
+      <p id="practice-tip" class="practice-tip"></p>
+      <div id="practice-board" class="score-scroll"></div>
+    </section>
 
     <main class="stage">
       <div class="kit-frame">
@@ -115,6 +141,7 @@
     <p>「录音」记下你敲的每一下，再按「播放」按原来的时间放出来。节拍器不会被录进去。新的录音会换掉上一段。</p>
     <p>伴奏可以跟自己的歌，也可以选内置的两段无鼓音乐。点「打开伴奏」，或把 mp3、wav、ogg、m4a 等文件拖进页面。文件只留在这台浏览器里，不会上传；上次选的曲会记在本地，刷新后还在。播放、暂停、停止、进度、循环都有。伴奏音量和速度跟鼓分开，速度从 0.5 倍到 1.25 倍，音高也会一起变。</p>
     <p>伴奏的快捷键不占用鼓键：<kbd>B</kbd> 播放或暂停，<kbd>N</kbd> 停止，<kbd>L</kbd> 循环，<kbd>[</kbd> <kbd>]</kbd> 后退或前进 5 秒，<kbd>-</kbd> <kbd>=</kbd> 调节速度。录音时如果伴奏正在放，会记下当时的位置；播放这段录音时，伴奏从那个位置一起开始。节拍器可以同时开着。</p>
+    <p>「鼓谱」里有十首由易到难的入门节奏。格子上写着要按的键，同一面鼓的两个键会轮流出现。点「练习」先听一小节预备拍，游标跟着走。敲在窗口里的是绿色，偏早或偏晚会换一种颜色，漏掉的变红，每一圈给出准确率。多敲的只轻轻记一笔，不扣分。点「试听」先听示范。判定已经扣掉输出延迟，校准滑块用来再微调。快捷键 <kbd>C</kbd> 练习，<kbd>V</kbd> 试听，上下键换一首。练习自己打拍，这时节拍器不再重复嘀声。伴奏可以同时开着。</p>
     <p class="credit">音色来自 Virtuosity Drums（Versilian Studios 与 Karoryfer Samples），许可证为 CC0 1.0 公有领域。中音嗵鼓由高音嗵鼓采样降低四个半音得到。</p>
     <p><button type="button" id="diag-toggle">延迟诊断</button></p>
     <form method="dialog"><button type="submit" value="close">关闭</button></form>
