@@ -49,6 +49,22 @@ body {
 
 button, input { font: inherit; color: inherit; }
 
+/* Native popups on Linux Chrome stay light unless the control and each
+   option name both an opaque background and a text color. Inherited light
+   ink on that white list is unreadable. */
+select,
+select option {
+  color-scheme: dark;
+  background-color: #2a211c;
+  color: #f6f0e6;
+}
+
+select option:checked,
+select option:hover {
+  background-color: #e7c15a;
+  color: #2a1c08;
+}
+
 button {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--line);
@@ -162,9 +178,7 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
 }
 
 .backing select {
-  background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--line);
-  color: inherit;
   border-radius: 999px;
   padding: 4px 8px;
   font: inherit;
@@ -216,9 +230,7 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
 }
 
 .practice-controls select {
-  background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--line);
-  color: inherit;
   border-radius: 999px;
   padding: 4px 8px;
   font: inherit;
