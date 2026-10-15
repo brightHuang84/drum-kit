@@ -238,6 +238,30 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
   max-width: 16em;
 }
 
+.practice-drums {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+
+.practice-presets,
+.practice-drum-toggles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.practice-drums button {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.cell.is-off { opacity: 0.28; }
+.lane.is-off .lane-name { opacity: 0.45; }
+
 .practice-tip {
   margin: 0;
   font-size: 12px;

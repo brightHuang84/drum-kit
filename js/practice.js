@@ -62,10 +62,33 @@ function beatLabel(step) {
   return ["", "e", "&", "a"][slot];
 }
 
-function chartEvents(steps) {
+const TOGGLE_ORDER = ["kick", "snare", "hhClosed", "hhOpen", "ride", "crash", "tomHigh", "tomMid", "tomFloor"];
+
+function presentDrums(steps) {
+  return TOGGLE_ORDER.filter((id) => steps.some((step) => step.includes(id)));
+}
+
+function readActiveMap() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("drumkit-practice-active") || "");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return raw;
+  } catch {
+    return {};
+  }
+}
+
+// Active drums are the ones the player is practicing. Steps that become
+// empty are omitted here; stepDistance still counts them in the gap.
+function chartEvents(steps, active) {
   const events = [];
   steps.forEach((drums, step) => {
-    if (drums.length) events.push({ step, drums: [...new Set(drums)] });
+    const kept = [];
+    for (const id of drums) {
+      if (active && !active.has(id)) continue;
+      if (!kept.includes(id)) kept.push(id);
+    }
+    if (kept.length) events.push({ step, drums: kept });
   });
   return events;
 }
@@ -91,6 +114,9 @@ export function createPractice(deps) {
     extra: document.getElementById("practice-extra"),
     tip: document.getElementById("practice-tip"),
     board: document.getElementById("practice-board"),
+    drums: document.getElementById("practice-drums"),
+    toggles: document.getElementById("practice-drum-toggles"),
+    accompany: document.getElementById("practice-accompany"),
   };
 
   const drums = Object.fromEntries(deps.drums.map((drum) => [drum.id, drum]));
@@ -124,6 +150,10 @@ export function createPractice(deps) {
     clickBeat: 0,
     loopSummary: null,
     banner: "",
+    activeMap: readActiveMap(),
+    active: new Set(),
+    accompany: localStorage.getItem("drumkit-practice-accompany") === "1",
+    backed: 0,
   };
 
   ui.bpm.value = String(clamp(storedNumber("drumkit-practice-bpm", 60), 40, 160));
@@ -150,6 +180,86 @@ export function createPractice(deps) {
 
   function isOpen() {
     return !ui.panel.hidden;
+  }
+
+  function chosenIds(item) {
+    const present = presentDrums(item.steps);
+    const stored = state.activeMap[item.id];
+    if (!Array.isArray(stored)) return present.slice();
+    const keep = new Set(stored.filter((id) => present.includes(id)));
+    return present.filter((id) => keep.has(id));
+  }
+
+  function paintAccompany() {
+    ui.accompany.setAttribute("aria-pressed", state.accompany ? "true" : "false");
+    ui.accompany.textContent = state.accompany ? "跟奏开" : "跟奏";
+  }
+
+  function paintToggles() {
+    const present = presentDrums(pattern().steps);
+    ui.toggles.replaceChildren();
+    for (const id of present) {
+      const drum = drums[id];
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.drum = id;
+      const keys = (drum ? drum.keys : []).map((key) => (key === "空格" ? "空" : key)).join(" ");
+      button.textContent = drum ? `${drum.short} ${keys}` : id;
+      button.setAttribute("aria-pressed", state.active.has(id) ? "true" : "false");
+      ui.toggles.appendChild(button);
+    }
+    const selected = present.filter((id) => state.active.has(id));
+    const backbeat = ["kick", "snare"].filter((id) => present.includes(id));
+    const match = {
+      all: present.length > 0 && selected.length === present.length,
+      kick: present.includes("kick") && selected.length === 1 && selected[0] === "kick",
+      backbeat: backbeat.length > 0 && backbeat.length === selected.length && backbeat.every((id) => state.active.has(id)),
+    };
+    for (const button of ui.drums.querySelectorAll("[data-preset]")) {
+      const name = button.dataset.preset;
+      button.setAttribute("aria-pressed", match[name] ? "true" : "false");
+      if (name === "kick") button.disabled = !present.includes("kick");
+      if (name === "backbeat") button.disabled = backbeat.length === 0;
+    }
+    paintAccompany();
+  }
+
+  function paintDim() {
+    const dim = state.mode !== "listen";
+    for (const lane of ui.board.querySelectorAll(".lane[data-lane]")) {
+      lane.classList.toggle("is-off", dim && !state.active.has(lane.dataset.lane));
+    }
+    for (const cell of ui.board.querySelectorAll(".cell.has-note")) {
+      cell.classList.toggle("is-off", dim && !state.active.has(cell.dataset.drum));
+    }
+  }
+
+  function commitActive(ids) {
+    const present = presentDrums(pattern().steps);
+    const next = present.filter((id) => ids.includes(id));
+    const same = next.length === state.active.size && next.every((id) => state.active.has(id));
+    state.active = new Set(next);
+    state.activeMap[pattern().id] = next.slice();
+    localStorage.setItem("drumkit-practice-active", JSON.stringify(state.activeMap));
+    state.events = chartEvents(pattern().steps, state.active);
+    paintToggles();
+    paintDim();
+    if (same || state.mode !== "practice") return;
+    start("practice");
+  }
+
+  function applyPreset(name) {
+    const present = presentDrums(pattern().steps);
+    if (name === "all") commitActive(present);
+    else if (name === "kick") commitActive(present.includes("kick") ? ["kick"] : []);
+    else if (name === "backbeat") commitActive(["kick", "snare"].filter((id) => present.includes(id)));
+  }
+
+  function toggleDrum(id) {
+    const present = presentDrums(pattern().steps);
+    if (!present.includes(id)) return;
+    const next = present.filter((drum) => (drum === id ? !state.active.has(drum) : state.active.has(drum)));
+    commitActive(next);
   }
 
   function trendOf(word) {
@@ -193,7 +303,8 @@ export function createPractice(deps) {
 
   function renderScore() {
     const steps = pattern().steps;
-    state.events = chartEvents(steps);
+    state.active = new Set(chosenIds(pattern()));
+    state.events = chartEvents(steps, state.active);
     const used = LANE_ORDER.filter((id) => steps.some((step) => step.includes(id)));
     const counts = {};
     const board = document.createElement("div");
@@ -221,6 +332,7 @@ export function createPractice(deps) {
     for (const id of used) {
       const lane = document.createElement("div");
       lane.className = "lane";
+      lane.dataset.lane = id;
       const name = document.createElement("span");
       name.className = "lane-name";
       name.textContent = drums[id] ? drums[id].short : id;
@@ -251,6 +363,8 @@ export function createPractice(deps) {
     ui.board.replaceChildren(board);
     ui.tip.textContent = pattern().tip;
     state.col = -2;
+    paintDim();
+    paintToggles();
     paintButtons();
   }
 
@@ -405,11 +519,18 @@ export function createPractice(deps) {
     state.loopSummary = null;
     state.loopKept = null;
     state.banner = "";
+    state.backed = 0;
     ui.extra.textContent = "";
     ui.score.dataset.trend = "";
   }
 
   function paintReadout() {
+    if (!state.events.length) {
+      ui.score.textContent = "先选一面鼓";
+      ui.score.dataset.trend = "";
+      ui.extra.textContent = "";
+      return;
+    }
     if (state.banner === "loop" && state.loopKept && state.loopKept.length >= 2) {
       const sum = summarizeTempo(state.loopKept, targetBpm());
       ui.score.textContent = `这一圈 ${formatTempo(sum)}`;
@@ -495,6 +616,48 @@ export function createPractice(deps) {
     state.clickTimer = window.setTimeout(clickLoop, 50);
   }
 
+  function playerQuarter() {
+    const rows = state.loopSamples.length
+      ? state.loopSamples
+      : (state.loopKept && state.loopKept.length ? state.loopKept : state.samples.slice(-8));
+    if (!rows.length) return null;
+    const med = median(rows.map((sample) => sample.ioi / sample.quarters));
+    if (!med || med <= 0) return null;
+    return med;
+  }
+
+  // Inactive drums in the stretch ahead of the cursor, timed from the
+  // player's own quarter. Nothing is scheduled until a gap has been measured.
+  function scheduleAccompaniment(fromStep, onset) {
+    if (!state.accompany || state.mode !== "practice") return;
+    const quarter = playerQuarter();
+    if (quarter == null) return;
+    const steps = pattern().steps;
+    const length = steps.length;
+    const events = state.events;
+    if (!events.length || !length) return;
+    const next = events[state.cursor];
+    const span = stepDistance(fromStep, next.step, length);
+    const ctx = deps.getCtx();
+    if (!ctx) return;
+    const token = state.gen;
+    for (let dist = 0; dist < span; dist += 1) {
+      const step = (fromStep + dist) % length;
+      const when = onset + (dist / 4) * quarter;
+      for (const id of steps[step]) {
+        if (state.active.has(id)) continue;
+        deps.play(id, when, { record: false, visual: false, practice: true });
+        state.backed += 1;
+        const delay = Math.max(0, (when - ctx.currentTime) * 1000);
+        window.setTimeout(() => {
+          if (token !== state.gen) return;
+          if (state.mode !== "practice" || !state.accompany) return;
+          deps.flash(id);
+        }, delay);
+      }
+    }
+  }
+
   function finishEvent(time) {
     const events = state.events;
     const ev = events[state.cursor];
@@ -539,7 +702,9 @@ export function createPractice(deps) {
     state.judged[`${state.loop}:${ev.step}`] = status;
     state.lastEvent = { time, step: ev.step, loop: state.loop };
     state.filled = new Set();
+    const fromStep = ev.step;
     state.cursor = (state.cursor + 1) % events.length;
+    scheduleAccompaniment(fromStep, time);
     paintFollow();
     paintReadout();
   }
@@ -558,6 +723,7 @@ export function createPractice(deps) {
     resetFollow();
     paintButtons();
     clearBoardMarks();
+    paintDim();
   }
 
   function stopTransport() {
@@ -584,12 +750,21 @@ export function createPractice(deps) {
       ui.score.dataset.trend = "";
       ui.extra.textContent = "";
       paintButtons();
+      paintDim();
       say("试听，先听四拍");
       armTimer();
       ensureFrame();
       return;
     }
     resetFollow();
+    paintDim();
+    if (!state.events.length) {
+      ui.score.textContent = "先选一面鼓";
+      ui.extra.textContent = "";
+      paintButtons();
+      say("先选一面鼓");
+      return;
+    }
     ui.score.textContent = "你来起拍";
     ui.extra.textContent = "";
     paintButtons();
@@ -603,7 +778,7 @@ export function createPractice(deps) {
       const extra = ui.extra.textContent;
       const trend = ui.score.dataset.trend || "";
       stopTransport();
-      const keep = score && !score.startsWith("预备") && score !== "你来起拍" && score !== "再敲几下" && score !== "试听中";
+      const keep = score && !score.startsWith("预备") && score !== "你来起拍" && score !== "再敲几下" && score !== "试听中" && score !== "先选一面鼓";
       ui.score.textContent = keep ? score : "准备好了";
       ui.extra.textContent = keep ? extra : "";
       ui.score.dataset.trend = keep ? trend : "";
@@ -630,6 +805,7 @@ export function createPractice(deps) {
 
   function onHit(id) {
     if (state.mode !== "practice") return;
+    if (!state.active.has(id)) return;
     const ctx = deps.getCtx();
     if (!ctx) return;
     const events = state.events;
@@ -711,6 +887,23 @@ export function createPractice(deps) {
       paintButtons();
       if (state.mode === "practice" && state.banner !== "loop") paintReadout();
     });
+    ui.drums.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button || !ui.drums.contains(button)) return;
+      if (button.dataset.preset) {
+        applyPreset(button.dataset.preset);
+        return;
+      }
+      if (button.dataset.drum) {
+        toggleDrum(button.dataset.drum);
+        return;
+      }
+      if (button === ui.accompany) {
+        state.accompany = !state.accompany;
+        localStorage.setItem("drumkit-practice-accompany", state.accompany ? "1" : "0");
+        paintAccompany();
+      }
+    });
   }
 
   function suspend() {
@@ -744,6 +937,10 @@ export function createPractice(deps) {
       loopSummary: state.loopSummary,
       judged: { ...state.judged },
       samples: state.samples.map((sample) => ({ ...sample })),
+      active: [...state.active],
+      accompany: state.accompany,
+      backed: state.backed,
+      events: state.events.map((event) => ({ step: event.step, drums: [...event.drums] })),
     };
   }
 
