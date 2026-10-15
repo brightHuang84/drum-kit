@@ -254,6 +254,10 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
   white-space: nowrap;
 }
 
+.practice-score[data-trend="fast"] { color: #ffb15a; }
+.practice-score[data-trend="slow"] { color: #9ecbff; }
+.practice-score[data-trend="ok"] { color: #b7e3a2; }
+
 .practice-extra {
   font-size: 12px;
   color: var(--muted);
@@ -331,6 +335,8 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
 .cell.is-early { background: #8a6416; color: #fff6df; }
 .cell.is-late { background: #2f5f86; color: #f3f8ff; }
 .cell.is-miss { background: #8a3030; color: #fff4f2; }
+.cell.is-hit { background: #4a3b24; color: #fff6df; }
+.cell.is-wrong { background: #6a3434; color: #fff4f2; }
 
 .stage {
   flex: 1;
