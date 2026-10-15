@@ -1,13 +1,53 @@
-// Practice patterns schedule clicks on the AudioContext clock (look-ahead),
-// then a display frame only paints the playhead. Live drum hits are judged
-// after they have already started, and this module never schedules them.
+// Practice follows the player. Hits advance the score; the clock does not.
+// Tempo is estimated from the gaps between those hits, compared with the
+// target BPM. Listen mode still plays the chart on the audio clock.
 
 import { PATTERNS } from "./patterns.js";
 
 const COUNT_IN = 16;
 const LOOKAHEAD = 0.25;
+const LANE_ORDER = ["crash", "ride", "hhOpen", "hhClosed", "tomHigh", "tomMid", "snare", "tomFloor", "kick"];
 
-const LANES = ["crash", "ride", "hhOpen", "hhClosed", "tomHigh", "tomMid", "snare", "tomFloor", "kick"];
+export function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// samples: { quarters, ioi } where ioi is seconds between hits and quarters
+// is the chart distance in quarter notes. Needs two gaps before it will speak.
+export function summarizeTempo(samples, targetBpm) {
+  if (!samples || samples.length < 2) return null;
+  const quarters = samples.map((sample) => sample.ioi / sample.quarters);
+  const med = median(quarters);
+  if (!med || med <= 0) return null;
+  const bpm = 60 / med;
+  const residuals = samples.map((sample) => Math.abs(sample.ioi - med * sample.quarters) * 1000);
+  // Average, not the median: one rushed note should show up as unsteady
+  // even when the tempo median itself ignores it.
+  const mad = residuals.reduce((sum, value) => sum + value, 0) / residuals.length;
+  const target = Number(targetBpm) || 60;
+  const diff = Math.round(bpm - target);
+  const band = Math.max(2, Math.round(target * 0.03));
+  let word = "正好";
+  if (diff > band) word = "偏快";
+  else if (diff < -band) word = "偏慢";
+  const steady = mad <= 35 ? "很稳" : mad <= 70 ? "还稳" : "不稳";
+  return { bpm, diff, word, mad, steady, target };
+}
+
+// priorSamples are the gaps before this one. A shorter gap than the player's
+// own running tempo is early; a longer gap is late. The target BPM is not used.
+export function classifyInterval(ioi, quarters, priorSamples) {
+  if (!priorSamples.length) return "hit";
+  const predicted = median(priorSamples.map((sample) => sample.ioi / sample.quarters)) * quarters;
+  const tol = Math.max(0.045, predicted * 0.12);
+  const delta = ioi - predicted;
+  if (Math.abs(delta) <= tol) return "good";
+  return delta < 0 ? "early" : "late";
+}
 
 function storedNumber(key, fallback) {
   const raw = localStorage.getItem(key);
@@ -22,6 +62,20 @@ function beatLabel(step) {
   return ["", "e", "&", "a"][slot];
 }
 
+function chartEvents(steps) {
+  const events = [];
+  steps.forEach((drums, step) => {
+    if (drums.length) events.push({ step, drums: [...new Set(drums)] });
+  });
+  return events;
+}
+
+function stepDistance(fromStep, toStep, length) {
+  let distance = toStep - fromStep;
+  if (distance <= 0) distance += length;
+  return distance;
+}
+
 export function createPractice(deps) {
   const ui = {
     panel: document.getElementById("practice"),
@@ -30,12 +84,9 @@ export function createPractice(deps) {
     lesson: document.getElementById("practice-lesson"),
     start: document.getElementById("practice-start"),
     listen: document.getElementById("practice-listen"),
+    click: document.getElementById("practice-click"),
     bpm: document.getElementById("practice-bpm"),
     bpmOut: document.getElementById("practice-bpm-out"),
-    window: document.getElementById("practice-window"),
-    windowOut: document.getElementById("practice-window-out"),
-    offset: document.getElementById("practice-offset"),
-    offsetOut: document.getElementById("practice-offset-out"),
     score: document.getElementById("practice-score"),
     extra: document.getElementById("practice-extra"),
     tip: document.getElementById("practice-tip"),
@@ -46,27 +97,36 @@ export function createPractice(deps) {
   const state = {
     mode: "off",
     lesson: 0,
+    events: chartEvents(PATTERNS[0].steps),
     origin: 0,
     nextTime: 0,
     step: 0,
-    patternStart: Infinity,
-    notes: [],
     marks: [],
     voices: [],
     gen: 0,
     timer: 0,
+    clickTimer: 0,
     raf: 0,
     col: -2,
     playLoop: -1,
-    extras: 0,
-    markStamp: "",
-    lastScore: null,
-    gaps: {},
+    cursor: 0,
+    loop: 0,
+    filled: new Set(),
+    onset: 0,
+    lastEvent: null,
+    samples: [],
+    loopSamples: [],
+    judged: {},
+    wrong: 0,
+    clickOn: false,
+    pulseOrigin: null,
+    clickNext: 0,
+    clickBeat: 0,
+    loopSummary: null,
+    banner: "",
   };
 
   ui.bpm.value = String(clamp(storedNumber("drumkit-practice-bpm", 60), 40, 160));
-  ui.window.value = String(clamp(storedNumber("drumkit-practice-window", 100), 40, 160));
-  ui.offset.value = String(clamp(storedNumber("drumkit-practice-offset", 0), -80, 80));
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -76,21 +136,12 @@ export function createPractice(deps) {
     return PATTERNS[state.lesson] || PATTERNS[0];
   }
 
+  function targetBpm() {
+    return Number(ui.bpm.value || 60);
+  }
+
   function stepDur() {
-    return (60 / Number(ui.bpm.value || 60)) / 4;
-  }
-
-  function latencyShift() {
-    const ctx = deps.getCtx();
-    const output = ctx && Number.isFinite(ctx.outputLatency) ? ctx.outputLatency : 0;
-    return output + Number(ui.offset.value || 0) / 1000;
-  }
-
-  function windowFor(id) {
-    const requested = Number(ui.window.value || 100) / 1000;
-    const gapSteps = state.gaps[id] || pattern().steps.length;
-    const cap = Math.max(0.05, gapSteps * stepDur() * 0.45);
-    return Math.min(requested, cap);
+    return (60 / targetBpm()) / 4;
   }
 
   function say(text) {
@@ -101,6 +152,24 @@ export function createPractice(deps) {
     return !ui.panel.hidden;
   }
 
+  function trendOf(word) {
+    if (word === "偏快") return "fast";
+    if (word === "偏慢") return "slow";
+    if (word === "正好") return "ok";
+    return "";
+  }
+
+  function formatTempo(sum) {
+    const bpm = Math.round(sum.bpm);
+    const sign = sum.diff > 0 ? "+" : "";
+    const gap = sum.diff === 0 ? "" : ` ${sign}${sum.diff}`;
+    return `${bpm} BPM ${sum.word}${gap}`;
+  }
+
+  function formatSteady(sum) {
+    return `${sum.steady} ±${Math.round(sum.mad)}毫秒`;
+  }
+
   function paintButtons() {
     const practicing = state.mode === "practice";
     const listening = state.mode === "listen";
@@ -108,15 +177,11 @@ export function createPractice(deps) {
     ui.listen.setAttribute("aria-pressed", listening ? "true" : "false");
     ui.start.textContent = practicing ? "练习中" : "练习";
     ui.listen.textContent = listening ? "停止" : "试听";
+    ui.click.setAttribute("aria-pressed", state.clickOn ? "true" : "false");
+    ui.click.textContent = state.clickOn ? "嘀声开" : "嘀声";
     ui.open.setAttribute("aria-pressed", isOpen() ? "true" : "false");
     ui.open.setAttribute("aria-expanded", isOpen() ? "true" : "false");
     ui.bpmOut.textContent = ui.bpm.value;
-    ui.windowOut.textContent = `±${ui.window.value}`;
-    const trim = Number(ui.offset.value);
-    ui.offsetOut.textContent = `${trim > 0 ? "+" : ""}${trim}`;
-    const ctx = deps.getCtx();
-    const auto = ctx && Number.isFinite(ctx.outputLatency) ? Math.round(ctx.outputLatency * 1000) : 0;
-    ui.offset.title = `已计入输出延迟 ${auto} 毫秒。总是被记成晚，就往右拨。`;
   }
 
   function keyLabel(id, index) {
@@ -126,31 +191,10 @@ export function createPractice(deps) {
     return key === "空格" ? "空" : key;
   }
 
-  function measureGaps(steps) {
-    const last = {};
-    const first = {};
-    const min = {};
-    for (let i = 0; i < steps.length; i += 1) {
-      for (const id of steps[i]) {
-        if (first[id] == null) first[id] = i;
-        if (last[id] != null) {
-          const gap = i - last[id];
-          min[id] = Math.min(min[id] || gap, gap);
-        }
-        last[id] = i;
-      }
-    }
-    for (const id of Object.keys(last)) {
-      const wrap = first[id] + steps.length - last[id];
-      min[id] = Math.min(min[id] || wrap, wrap);
-    }
-    return min;
-  }
-
   function renderScore() {
     const steps = pattern().steps;
-    state.gaps = measureGaps(steps);
-    const used = LANES.filter((id) => steps.some((step) => step.includes(id)));
+    state.events = chartEvents(steps);
+    const used = LANE_ORDER.filter((id) => steps.some((step) => step.includes(id)));
     const counts = {};
     const board = document.createElement("div");
     board.className = "score";
@@ -250,7 +294,7 @@ export function createPractice(deps) {
   }
 
   function scheduleAhead() {
-    if (state.mode === "off") return;
+    if (state.mode !== "listen") return;
     const ctx = deps.getCtx();
     if (!ctx) return;
     const dur = stepDur();
@@ -270,13 +314,8 @@ export function createPractice(deps) {
       if (column % 4 === 0) clickAt(time, column % 16 === 0, inCount);
       state.marks.push({ time, column, loop, phase: inCount ? "count" : "play" });
       if (!inCount) {
-        if (state.patternStart === Infinity) state.patternStart = time;
         for (const id of steps[column]) {
-          if (state.mode === "listen") {
-            deps.play(id, time, { record: false, visual: false, practice: true });
-          } else {
-            state.notes.push({ drum: id, step: column, loop, time, status: "wait", delta: null });
-          }
+          deps.play(id, time, { record: false, visual: false, practice: true });
         }
       }
       state.step += 1;
@@ -287,7 +326,7 @@ export function createPractice(deps) {
 
   function armTimer() {
     window.clearTimeout(state.timer);
-    if (state.mode === "off") return;
+    if (state.mode !== "listen") return;
     scheduleAhead();
     state.timer = window.setTimeout(armTimer, 40);
   }
@@ -304,103 +343,45 @@ export function createPractice(deps) {
     return hit;
   }
 
+  function clearBoardMarks() {
+    for (const el of ui.board.querySelectorAll(".is-now, .is-soon, .is-good, .is-early, .is-late, .is-miss, .is-hit, .is-wrong")) {
+      el.classList.remove("is-now", "is-soon", "is-good", "is-early", "is-late", "is-miss", "is-hit", "is-wrong");
+    }
+  }
+
   function paintPlayhead(pos) {
     const column = pos.phase === "play" ? pos.column : (pos.column - (pos.column % 4));
     if (column === state.col && pos.loop === state.playLoop) return;
-    const board = ui.board;
-    for (const el of board.querySelectorAll(".is-now, .is-soon")) {
-      el.classList.remove("is-now", "is-soon");
-    }
+    clearBoardMarks();
     if (pos.phase === "count") {
       const beatCol = pos.column - (pos.column % 4);
-      const tick = board.querySelector(`.tick[data-step="${beatCol}"]`);
+      const tick = ui.board.querySelector(`.tick[data-step="${beatCol}"]`);
       if (tick) tick.classList.add("is-now");
-      for (const el of board.querySelectorAll('.cell[data-step="0"][data-on="1"]')) el.classList.add("is-soon");
+      for (const el of ui.board.querySelectorAll('.cell[data-step="0"][data-on="1"]')) el.classList.add("is-soon");
       ui.score.textContent = `预备 ${Math.floor(pos.column / 4) + 1}`;
+      ui.score.dataset.trend = "";
     } else {
-      for (const el of board.querySelectorAll(`[data-step="${column}"]`)) el.classList.add("is-now");
+      for (const el of ui.board.querySelectorAll(`[data-step="${column}"]`)) el.classList.add("is-now");
       const next = (column + 1) % pattern().steps.length;
-      for (const el of board.querySelectorAll(`.cell[data-step="${next}"][data-on="1"]`)) el.classList.add("is-soon");
-      if (pos.loop !== state.playLoop) {
-        state.extras = 0;
-        ui.extra.textContent = "";
-      }
-      if (state.lastScore) ui.score.textContent = `这一圈 ${state.lastScore.pct}% · ${state.lastScore.word}`;
-      else if (state.mode === "listen") ui.score.textContent = "试听中";
-      else ui.score.textContent = "看着亮着的格子";
+      for (const el of ui.board.querySelectorAll(`.cell[data-step="${next}"][data-on="1"]`)) el.classList.add("is-soon");
+      ui.score.textContent = "试听中";
+      ui.score.dataset.trend = "";
     }
     state.col = column;
     state.playLoop = pos.loop;
   }
 
-  function paintMarks() {
-    const stamp = `${state.playLoop}:${state.extras}:${state.notes.map((note) => note.status).join("")}`;
-    if (stamp === state.markStamp) return;
-    state.markStamp = stamp;
-    const board = ui.board;
-    for (const el of board.querySelectorAll(".is-good, .is-early, .is-late, .is-miss")) {
-      el.classList.remove("is-good", "is-early", "is-late", "is-miss");
-    }
-    for (const note of state.notes) {
-      if (note.loop !== state.playLoop || note.status === "wait") continue;
-      const cell = board.querySelector(`.cell[data-drum="${note.drum}"][data-step="${note.step}"]`);
-      if (cell) cell.classList.add(`is-${note.status}`);
-    }
-    ui.extra.textContent = state.extras > 0 ? `多敲 ${state.extras}` : "";
-  }
-
-  function phrase(pct) {
-    if (pct >= 90) return "很稳";
-    if (pct >= 70) return "不错";
-    if (pct >= 45) return "跟上了";
-    return "慢慢来";
-  }
-
-  function publish(loop) {
-    const mine = state.notes.filter((note) => note.loop === loop);
-    if (!mine.length) return;
-    const points = mine.reduce((sum, note) => {
-      if (note.status === "good") return sum + 1;
-      if (note.status === "early" || note.status === "late") return sum + 0.7;
-      return sum;
-    }, 0);
-    const pct = Math.round((100 * points) / mine.length);
-    const word = phrase(pct);
-    state.lastScore = { pct, word, loop };
-    ui.score.textContent = `这一圈 ${pct}% · ${word}`;
-    say(`${word}，这一圈 ${pct}%`);
-    state.notes = state.notes.filter((note) => note.loop !== loop);
-  }
-
-  function resolve(now) {
-    if (state.mode !== "practice") return;
-    const shift = latencyShift();
-    for (const note of state.notes) {
-      if (note.status !== "wait") continue;
-      if (now > note.time + shift + windowFor(note.drum)) note.status = "miss";
-    }
-    const loops = new Set(state.notes.map((note) => note.loop));
-    for (const loop of loops) {
-      if (loop >= state.playLoop) continue;
-      const mine = state.notes.filter((note) => note.loop === loop);
-      if (mine.some((note) => note.status === "wait")) continue;
-      publish(loop);
-    }
-  }
-
   function frame() {
     state.raf = 0;
-    if (state.mode === "off") return;
+    if (state.mode !== "listen") return;
     const ctx = deps.getCtx();
     if (!ctx) return;
     const now = ctx.currentTime;
     const pos = playhead(now);
-    if (state.mode === "listen" && pos.phase === "play" && pos.column !== state.col) {
+    if (pos.phase === "play" && pos.column !== state.col) {
       for (const id of pattern().steps[pos.column] || []) deps.flash(id);
     }
     paintPlayhead(pos);
-    resolve(now);
-    paintMarks();
     state.raf = requestAnimationFrame(frame);
   }
 
@@ -408,25 +389,175 @@ export function createPractice(deps) {
     if (!state.raf) state.raf = requestAnimationFrame(frame);
   }
 
+  function resetFollow() {
+    state.cursor = 0;
+    state.loop = 0;
+    state.filled = new Set();
+    state.onset = 0;
+    state.lastEvent = null;
+    state.samples = [];
+    state.loopSamples = [];
+    state.judged = {};
+    state.wrong = 0;
+    state.pulseOrigin = null;
+    state.clickNext = 0;
+    state.clickBeat = 0;
+    state.loopSummary = null;
+    state.loopKept = null;
+    state.banner = "";
+    ui.extra.textContent = "";
+    ui.score.dataset.trend = "";
+  }
+
+  function paintReadout() {
+    if (state.banner === "loop" && state.loopKept && state.loopKept.length >= 2) {
+      const sum = summarizeTempo(state.loopKept, targetBpm());
+      ui.score.textContent = `这一圈 ${formatTempo(sum)}`;
+      ui.score.dataset.trend = trendOf(sum.word);
+      const wrong = state.wrong ? ` 错音 ${state.wrong}` : "";
+      ui.extra.textContent = `${formatSteady(sum)}${wrong}`;
+      return;
+    }
+    const source = state.loopSamples.length >= 2 ? state.loopSamples : state.samples.slice(-8);
+    const sum = summarizeTempo(source, targetBpm());
+    if (!sum) {
+      ui.score.textContent = state.lastEvent ? "再敲几下" : "你来起拍";
+      ui.score.dataset.trend = "";
+      ui.extra.textContent = state.wrong ? `错音 ${state.wrong}` : "";
+      return;
+    }
+    ui.score.textContent = `当前 ${formatTempo(sum)}`;
+    ui.score.dataset.trend = trendOf(sum.word);
+    const wrong = state.wrong ? ` 错音 ${state.wrong}` : "";
+    ui.extra.textContent = `${formatSteady(sum)}${wrong}`;
+  }
+
+  function paintFollow() {
+    clearBoardMarks();
+    const events = state.events;
+    if (!events.length) return;
+    const ev = events[state.cursor];
+    const next = events[(state.cursor + 1) % events.length];
+    const tick = ui.board.querySelector(`.tick[data-step="${ev.step}"]`);
+    if (tick) tick.classList.add("is-now");
+    for (const id of ev.drums) {
+      const cell = ui.board.querySelector(`.cell[data-drum="${id}"][data-step="${ev.step}"]`);
+      if (!cell) continue;
+      cell.classList.add(state.filled.has(id) ? "is-hit" : "is-now");
+    }
+    for (const id of next.drums) {
+      const cell = ui.board.querySelector(`.cell[data-drum="${id}"][data-step="${next.step}"]`);
+      if (cell && !cell.classList.contains("is-now") && !cell.classList.contains("is-hit")) {
+        cell.classList.add("is-soon");
+      }
+    }
+    for (const event of events) {
+      const status = state.judged[`${state.loop}:${event.step}`];
+      if (!status || event.step === ev.step) continue;
+      for (const id of event.drums) {
+        const cell = ui.board.querySelector(`.cell[data-drum="${id}"][data-step="${event.step}"]`);
+        if (!cell) continue;
+        cell.classList.remove("is-soon");
+        cell.classList.add(status === "hit" ? "is-hit" : `is-${status}`);
+      }
+    }
+  }
+
+  function flagWrong(id) {
+    state.wrong += 1;
+    const ev = state.events[state.cursor];
+    const cell = ev && ui.board.querySelector(`.cell[data-drum="${id}"][data-step="${ev.step}"]`);
+    if (cell) {
+      cell.classList.add("is-wrong");
+      window.setTimeout(() => cell.classList.remove("is-wrong"), 320);
+    }
+    paintReadout();
+  }
+
+  function clickLoop() {
+    window.clearTimeout(state.clickTimer);
+    if (state.mode !== "practice" || !state.clickOn || state.pulseOrigin == null) return;
+    const ctx = deps.getCtx();
+    if (!ctx) return;
+    const quarter = 60 / targetBpm();
+    if (state.clickNext < ctx.currentTime - 0.03) {
+      const missed = Math.floor((ctx.currentTime - state.clickNext) / quarter) + 1;
+      state.clickNext += missed * quarter;
+      state.clickBeat += missed;
+    }
+    const horizon = ctx.currentTime + LOOKAHEAD;
+    while (state.clickNext < horizon) {
+      const when = Math.max(state.clickNext, ctx.currentTime);
+      clickAt(when, state.clickBeat % 4 === 0, false);
+      state.clickBeat += 1;
+      state.clickNext += quarter;
+    }
+    state.clickTimer = window.setTimeout(clickLoop, 50);
+  }
+
+  function finishEvent(time) {
+    const events = state.events;
+    const ev = events[state.cursor];
+    const length = pattern().steps.length;
+    let status = "hit";
+    if (state.lastEvent) {
+      const dist = stepDistance(state.lastEvent.step, ev.step, length);
+      const quarters = dist / 4;
+      const ioi = Math.max(0.02, time - state.lastEvent.time);
+      const sample = { quarters, ioi };
+      status = classifyInterval(ioi, quarters, state.samples);
+      state.samples.push(sample);
+      if (state.samples.length > 24) state.samples.shift();
+      state.loopSamples.push(sample);
+    }
+    const wrapped = Boolean(state.lastEvent && ev.step <= state.lastEvent.step);
+    if (state.pulseOrigin == null) {
+      const quarter = 60 / targetBpm();
+      state.pulseOrigin = time - (ev.step / 4) * quarter;
+      state.clickNext = state.pulseOrigin;
+      state.clickBeat = Math.round((time - state.pulseOrigin) / quarter);
+      if (state.clickOn) clickLoop();
+    }
+    if (wrapped) {
+      state.loopKept = state.loopSamples.slice();
+      state.loopSummary = summarizeTempo(state.loopKept, targetBpm());
+      if (state.loopSummary) state.loopSummary.wrong = state.wrong;
+      state.banner = "loop";
+      state.loop += 1;
+      state.loopSamples = [];
+      state.wrong = 0;
+      state.judged = {};
+      if (state.loopSummary) {
+        const sum = state.loopSummary;
+        const sign = sum.diff > 0 ? "+" : "";
+        const gap = sum.diff === 0 ? "" : `${sign}${sum.diff}`;
+        say(`这一圈${sum.word}${gap}，${sum.steady}`);
+      }
+    } else {
+      state.banner = "live";
+    }
+    state.judged[`${state.loop}:${ev.step}`] = status;
+    state.lastEvent = { time, step: ev.step, loop: state.loop };
+    state.filled = new Set();
+    state.cursor = (state.cursor + 1) % events.length;
+    paintFollow();
+    paintReadout();
+  }
+
   function halt() {
     state.mode = "off";
     window.clearTimeout(state.timer);
+    window.clearTimeout(state.clickTimer);
     cancelAnimationFrame(state.raf);
     state.raf = 0;
     stopVoices();
-    state.notes = [];
     state.marks = [];
     state.step = 0;
-    state.patternStart = Infinity;
     state.col = -2;
     state.playLoop = -1;
-    state.extras = 0;
-    state.markStamp = "";
-    ui.extra.textContent = "";
+    resetFollow();
     paintButtons();
-    for (const el of ui.board.querySelectorAll(".is-now, .is-soon, .is-good, .is-early, .is-late, .is-miss")) {
-      el.classList.remove("is-now", "is-soon", "is-good", "is-early", "is-late", "is-miss");
-    }
+    clearBoardMarks();
   }
 
   function stopTransport() {
@@ -445,29 +576,37 @@ export function createPractice(deps) {
     if (token !== state.gen) return;
     halt();
     state.mode = mode;
-    state.lastScore = null;
-    state.extras = 0;
-    state.notes = [];
-    state.step = 0;
-    state.patternStart = Infinity;
-    state.col = -2;
-    state.playLoop = -1;
-    const now = deps.getCtx().currentTime;
-    state.origin = now + 0.08;
-    state.nextTime = state.origin;
-    ui.score.textContent = "预备 1";
+    if (mode === "listen") {
+      const now = deps.getCtx().currentTime;
+      state.origin = now + 0.08;
+      state.nextTime = state.origin;
+      ui.score.textContent = "预备 1";
+      ui.score.dataset.trend = "";
+      ui.extra.textContent = "";
+      paintButtons();
+      say("试听，先听四拍");
+      armTimer();
+      ensureFrame();
+      return;
+    }
+    resetFollow();
+    ui.score.textContent = "你来起拍";
+    ui.extra.textContent = "";
     paintButtons();
-    say(mode === "listen" ? "试听，先听四拍" : "练习开始，先听四拍");
-    armTimer();
-    ensureFrame();
+    paintFollow();
+    say("练习开始，你来起拍");
   }
 
   function toggle(mode) {
     if (state.mode === mode) {
+      const score = ui.score.textContent;
+      const extra = ui.extra.textContent;
+      const trend = ui.score.dataset.trend || "";
       stopTransport();
-      ui.score.textContent = state.lastScore
-        ? `这一圈 ${state.lastScore.pct}% · ${state.lastScore.word}`
-        : "准备好了";
+      const keep = score && !score.startsWith("预备") && score !== "你来起拍" && score !== "再敲几下" && score !== "试听中";
+      ui.score.textContent = keep ? score : "准备好了";
+      ui.extra.textContent = keep ? extra : "";
+      ui.score.dataset.trend = keep ? trend : "";
       say(mode === "listen" ? "试听已停" : "练习已停");
       return;
     }
@@ -478,12 +617,14 @@ export function createPractice(deps) {
     ui.panel.hidden = false;
     paintButtons();
     renderScore();
+    if (state.mode === "practice") paintFollow();
   }
 
   function closePanel() {
     stopTransport();
     ui.panel.hidden = true;
     ui.score.textContent = "准备好了";
+    ui.score.dataset.trend = "";
     paintButtons();
   }
 
@@ -491,31 +632,17 @@ export function createPractice(deps) {
     if (state.mode !== "practice") return;
     const ctx = deps.getCtx();
     if (!ctx) return;
-    const now = ctx.currentTime;
-    const shift = latencyShift();
-    let best = null;
-    let bestAbs = Infinity;
-    let bestDelta = 0;
-    for (const note of state.notes) {
-      if (note.drum !== id || note.status !== "wait") continue;
-      const delta = now - (note.time + shift);
-      const abs = Math.abs(delta);
-      if (abs <= windowFor(id) && abs < bestAbs) {
-        best = note;
-        bestAbs = abs;
-        bestDelta = delta;
-      }
-    }
-    if (!best) {
-      if (!(now + 0.02 >= state.patternStart)) return;
-      state.extras += 1;
+    const events = state.events;
+    if (!events.length) return;
+    const ev = events[state.cursor];
+    if (ev.drums.includes(id) && !state.filled.has(id)) {
+      if (state.filled.size === 0) state.onset = ctx.currentTime;
+      state.filled.add(id);
+      if (state.filled.size === ev.drums.length) finishEvent(state.onset);
+      else paintFollow();
       return;
     }
-    const win = windowFor(id);
-    if (Math.abs(bestDelta) <= win * 0.4) best.status = "good";
-    else if (bestDelta < 0) best.status = "early";
-    else best.status = "late";
-    best.delta = bestDelta;
+    flagWrong(id);
   }
 
   function onKeydown(event) {
@@ -569,17 +696,20 @@ export function createPractice(deps) {
       if (!isOpen()) openPanel();
       toggle("listen");
     });
+    ui.click.addEventListener("click", () => {
+      state.clickOn = !state.clickOn;
+      paintButtons();
+      if (!state.clickOn) {
+        window.clearTimeout(state.clickTimer);
+        if (state.mode !== "listen") stopVoices();
+        return;
+      }
+      if (state.mode === "practice" && state.pulseOrigin != null) clickLoop();
+    });
     ui.bpm.addEventListener("input", () => {
       localStorage.setItem("drumkit-practice-bpm", ui.bpm.value);
       paintButtons();
-    });
-    ui.window.addEventListener("input", () => {
-      localStorage.setItem("drumkit-practice-window", ui.window.value);
-      paintButtons();
-    });
-    ui.offset.addEventListener("input", () => {
-      localStorage.setItem("drumkit-practice-offset", ui.offset.value);
-      paintButtons();
+      if (state.mode === "practice" && state.banner !== "loop") paintReadout();
     });
   }
 
@@ -587,31 +717,33 @@ export function createPractice(deps) {
     if (state.mode === "off") return;
     stopTransport();
     ui.score.textContent = "准备好了";
+    ui.score.dataset.trend = "";
   }
 
   function debug() {
-    const ctx = deps.getCtx();
+    const live = summarizeTempo(
+      state.loopSamples.length >= 2 ? state.loopSamples : state.samples.slice(-8),
+      targetBpm(),
+    );
     return {
       mode: state.mode,
       open: isOpen(),
       lesson: pattern().id,
       title: pattern().title,
-      bpm: Number(ui.bpm.value),
-      playLoop: state.playLoop,
-      patternStart: state.patternStart,
-      extras: state.extras,
+      target: targetBpm(),
+      cursor: state.cursor,
+      loop: state.loop,
+      wrong: state.wrong,
+      clickOn: state.clickOn,
+      filled: [...state.filled],
       score: ui.score.textContent,
-      lastScore: state.lastScore,
-      outputLatency: ctx && ctx.outputLatency,
-      offset: Number(ui.offset.value),
-      notes: state.notes.map((note) => ({
-        drum: note.drum,
-        step: note.step,
-        loop: note.loop,
-        status: note.status,
-        time: note.time,
-        delta: note.delta,
-      })),
+      extra: ui.extra.textContent,
+      trend: ui.score.dataset.trend || "",
+      banner: state.banner,
+      live,
+      loopSummary: state.loopSummary,
+      judged: { ...state.judged },
+      samples: state.samples.map((sample) => ({ ...sample })),
     };
   }
 
