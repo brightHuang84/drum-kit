@@ -238,6 +238,30 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
   max-width: 16em;
 }
 
+.practice-drums {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  touch-action: pan-x;
+}
+
+.practice-presets,
+.practice-drum-toggles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.practice-drums button {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.cell.is-off { opacity: 0.28; }
+.lane.is-off .lane-name { opacity: 0.45; }
+
 .practice-tip {
   margin: 0;
   font-size: 12px;
@@ -287,10 +311,11 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
 
 .lane-name {
   flex: none;
-  width: 2.6em;
+  width: 6.6em;
   text-align: right;
   font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .cells { display: flex; gap: 2px; }
@@ -317,6 +342,14 @@ output { min-width: 2ch; font-variant-numeric: tabular-nums; color: var(--ink); 
   background: rgba(255, 255, 255, 0.08);
   color: var(--ink);
   font-weight: 700;
+}
+
+.cell.has-note::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .tick.is-downbeat, .cell.is-downbeat { box-shadow: inset 1px 0 0 rgba(255, 220, 160, 0.28); }

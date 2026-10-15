@@ -91,6 +91,15 @@
         <span id="practice-score" class="practice-score">准备好了</span>
         <span id="practice-extra" class="practice-extra"></span>
       </div>
+      <div class="practice-drums" id="practice-drums">
+        <span class="practice-presets">
+          <button type="button" data-preset="all">全部</button>
+          <button type="button" data-preset="kick">只底鼓</button>
+          <button type="button" data-preset="backbeat">底鼓+军鼓</button>
+        </span>
+        <span id="practice-drum-toggles" class="practice-drum-toggles"></span>
+        <button type="button" id="practice-accompany" aria-pressed="false" title="没选上的鼓跟着你的速度响">跟奏</button>
+      </div>
       <p id="practice-tip" class="practice-tip"></p>
       <div id="practice-board" class="score-scroll"></div>
     </section>
@@ -134,7 +143,7 @@
     <p>「录音」记下你敲的每一下，再按「播放」按原来的时间放出来。节拍器不会被录进去。新的录音会换掉上一段。</p>
     <p>伴奏可以跟自己的歌，也可以选内置的两段无鼓音乐。点「打开伴奏」，或把 mp3、wav、ogg、m4a 等文件拖进页面。文件只留在这台浏览器里，不会上传；上次选的曲会记在本地，刷新后还在。播放、暂停、停止、进度、循环都有。伴奏音量和速度跟鼓分开，速度从 0.5 倍到 1.25 倍，音高也会一起变。</p>
     <p>伴奏的快捷键不占用鼓键：<kbd>B</kbd> 播放或暂停，<kbd>N</kbd> 停止，<kbd>L</kbd> 循环，<kbd>[</kbd> <kbd>]</kbd> 后退或前进 5 秒，<kbd>-</kbd> <kbd>=</kbd> 调节速度。录音时如果伴奏正在放，会记下当时的位置；播放这段录音时，伴奏从那个位置一起开始。节拍器可以同时开着。</p>
-    <p>「鼓谱」里有十首由易到难的入门节奏。格子上写着要按的键，同一面鼓的两个键会轮流出现。点「练习」以后由你自己起拍，亮着的格子跟着你敲对的音往前走，不再用预备拍对齐。速度按你前后两下之间的时间来算，再和目标 BPM 比，写出偏快、偏慢或正好，旁边给出 +6 这样的数。每一圈给出稳不稳，单位是毫秒。格子的颜色跟你自己的拍子比：跟上是绿的，早了或晚了换一种颜色。敲错的鼓只轻轻记一笔。嘀声默认关掉，要响再打开，它按目标速度走，不拿来判你。点「试听」仍按设定的 BPM 先听四拍，再打出这一首。快捷键 <kbd>C</kbd> 练习，<kbd>V</kbd> 试听，上下键换一首。伴奏可以同时开着。</p>
+    <p>「鼓谱」里有十首由易到难的入门节奏。格子里是一个点，敲到这面鼓就行。键写在鼓的旁边，两个键按哪个都行。点「练习」以后由你自己起拍，亮着的格子跟着你敲对的音往前走，不再用预备拍对齐。速度按你前后两下之间的时间来算，再和目标 BPM 比，写出偏快、偏慢或正好，旁边给出 +6 这样的数。每一圈给出稳不稳，单位是毫秒。格子的颜色跟你自己的拍子比：跟上是绿的，早了或晚了换一种颜色。敲错的鼓只轻轻记一笔。谱上可以只练几面鼓。点全部、只底鼓或底鼓+军鼓，也可以一面一面的开关。关掉的鼓在谱上变淡，游标不等它，敲它也不算错。空出来的格子仍算进速度。跟奏默认关，打开后没选上的鼓跟着你的速度响。嘀声默认关掉，要响再打开，它按目标速度走，不拿来判你。点「试听」仍按设定的 BPM 先听四拍，再打出整首。快捷键 <kbd>C</kbd> 练习，<kbd>V</kbd> 试听，上下键换一首。伴奏可以同时开着。</p>
     <p class="credit">音色来自 Virtuosity Drums（Versilian Studios 与 Karoryfer Samples），许可证为 CC0 1.0 公有领域。中音嗵鼓由高音嗵鼓采样降低四个半音得到。</p>
     <p><button type="button" id="diag-toggle">延迟诊断</button></p>
     <form method="dialog"><button type="submit" value="close">关闭</button></form>
