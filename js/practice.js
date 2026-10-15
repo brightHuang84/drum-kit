@@ -294,11 +294,11 @@ export function createPractice(deps) {
     ui.bpmOut.textContent = ui.bpm.value;
   }
 
-  function keyLabel(id, index) {
+  function laneLabel(id) {
     const drum = drums[id];
-    if (!drum) return "";
-    const key = drum.keys[index % drum.keys.length];
-    return key === "空格" ? "空" : key;
+    if (!drum) return id;
+    const keys = drum.keys.map((key) => (key === "空格" ? "空格" : key)).join("/");
+    return `${drum.short} ${keys}`;
   }
 
   function renderScore() {
@@ -306,7 +306,6 @@ export function createPractice(deps) {
     state.active = new Set(chosenIds(pattern()));
     state.events = chartEvents(steps, state.active);
     const used = LANE_ORDER.filter((id) => steps.some((step) => step.includes(id)));
-    const counts = {};
     const board = document.createElement("div");
     board.className = "score";
 
@@ -335,7 +334,7 @@ export function createPractice(deps) {
       lane.dataset.lane = id;
       const name = document.createElement("span");
       name.className = "lane-name";
-      name.textContent = drums[id] ? drums[id].short : id;
+      name.textContent = laneLabel(id);
       const cells = document.createElement("span");
       cells.className = "cells";
       steps.forEach((step, index) => {
@@ -346,13 +345,9 @@ export function createPractice(deps) {
         cell.dataset.step = String(index);
         cell.dataset.drum = id;
         if (step.includes(id)) {
-          const n = counts[id] || 0;
-          counts[id] = n + 1;
           cell.classList.add("has-note");
           cell.dataset.on = "1";
-          cell.textContent = keyLabel(id, n);
-          const full = drums[id] && drums[id].keys[n % drums[id].keys.length];
-          if (full) cell.title = full;
+          if (drums[id]) cell.title = drums[id].name;
         }
         cells.appendChild(cell);
       });
@@ -811,7 +806,10 @@ export function createPractice(deps) {
     const events = state.events;
     if (!events.length) return;
     const ev = events[state.cursor];
-    if (ev.drums.includes(id) && !state.filled.has(id)) {
+    // Either key, or the pad, arrives as this drum id. A second hit on a
+    // drum the current step already has is the same note, not a mistake.
+    if (ev.drums.includes(id)) {
+      if (state.filled.has(id)) return;
       if (state.filled.size === 0) state.onset = ctx.currentTime;
       state.filled.add(id);
       if (state.filled.size === ev.drums.length) finishEvent(state.onset);

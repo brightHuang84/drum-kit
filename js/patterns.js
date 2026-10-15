@@ -20,7 +20,7 @@ export const PATTERNS = [
   {
     id: "quarters",
     title: "四分底鼓和军鼓",
-    tip: "一拍和三拍踩底鼓，二拍和四拍打军鼓。F 和 G 轮流按。",
+    tip: "一拍和三拍踩底鼓，二拍和四拍打军鼓。",
     steps: grid(1, [
       [0, "kick"],
       [4, "snare"],
