@@ -2,6 +2,7 @@
 // Tempo is estimated from the gaps between those hits, compared with the
 // target BPM. Listen mode still plays the chart on the audio clock.
 
+import { shortcutFor } from "./bindings.js";
 import { PATTERNS } from "./patterns.js";
 
 const COUNT_IN = 16;
@@ -819,16 +820,22 @@ export function createPractice(deps) {
     flagWrong(id);
   }
 
+  function relabel() {
+    const mode = state.mode;
+    renderScore();
+    if (mode === "practice") paintFollow();
+  }
+
   function onKeydown(event) {
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
     const target = event.target;
     if (target instanceof Element && target.closest("input, textarea, select")) return false;
-    const code = event.code;
-    if (code !== "KeyC" && code !== "KeyV" && code !== "ArrowUp" && code !== "ArrowDown") return false;
-    if ((code === "KeyC" || code === "KeyV") && event.repeat) return true;
-    if (code === "ArrowUp" || code === "ArrowDown") {
+    const action = shortcutFor(event.code);
+    if (action !== "practice" && action !== "listen" && action !== "lesson-prev" && action !== "lesson-next") return false;
+    if ((action === "practice" || action === "listen") && event.repeat) return true;
+    if (action === "lesson-prev" || action === "lesson-next") {
       if (!isOpen()) return false;
-      const dir = code === "ArrowDown" ? 1 : -1;
+      const dir = action === "lesson-next" ? 1 : -1;
       state.lesson = (state.lesson + dir + PATTERNS.length) % PATTERNS.length;
       ui.lesson.value = String(state.lesson);
       renderScore();
@@ -836,7 +843,7 @@ export function createPractice(deps) {
       return true;
     }
     if (!isOpen()) openPanel();
-    if (code === "KeyC") toggle("practice");
+    if (action === "practice") toggle("practice");
     else toggle("listen");
     if (target instanceof Element) {
       const button = target.closest("button");
@@ -947,6 +954,7 @@ export function createPractice(deps) {
   return {
     onHit,
     onKeydown,
+    relabel,
     suspend,
     stopTransport,
     debug,
