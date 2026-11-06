@@ -23,6 +23,17 @@ for (const drum of PIECES) {
 }
 const BY_ID = Object.fromEntries(PIECES.map((d) => [d.id, d]));
 
+import {
+  assign,
+  codesFor,
+  labelFor,
+  ownerOf,
+  removeKey,
+  resetKeys,
+  shortcutCode,
+  snapshot,
+  subscribe,
+} from "./bindings.js";
 import { createBacking } from "./backing.js";
 import { createPractice } from "./practice.js";
 
@@ -246,6 +257,19 @@ function badge(d) {
   return `<span class="badge"><span class="keys">${keys}</span><span class="names"><b>${d.short}</b><small>${d.en}</small></span></span>`;
 }
 
+function syncMaps() {
+  for (const key of Object.keys(BY_CODE)) delete BY_CODE[key];
+  for (const drum of PIECES) {
+    const codes = codesFor(drum.id);
+    drum.codes = codes.slice();
+    drum.keys = codes.map((code) => labelFor(code));
+    drum.aria = drum.keys.length ? `${drum.name}，${drum.keys.join(" ")}` : drum.name;
+    for (const code of drum.codes) BY_CODE[code] = drum.id;
+  }
+}
+
+syncMaps();
+
 function render(d) {
   const attrs = `class="piece ${d.kind} ${d.cls}" data-drum="${d.id}" role="button" tabindex="-1" aria-label="${d.aria}"`;
   if (d.kind === "kick") {
@@ -443,6 +467,11 @@ window.addEventListener("pointerup", (e) => pointers.delete(e.pointerId));
 window.addEventListener("pointercancel", (e) => pointers.delete(e.pointerId));
 
 window.addEventListener("keydown", (e) => {
+  if (handleKeyCapture(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   if (practice && practice.onKeydown(e)) {
     e.preventDefault();
     return;
@@ -657,6 +686,164 @@ metroBtn.addEventListener("click", () => {
   setMetronome(next);
 });
 
+const KEY_ROWS = ["crash", "tomHigh", "tomMid", "ride", "hhClosed", "hhOpen", "snare", "kick", "tomFloor"];
+const MODIFIERS = new Set([
+  "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
+  "AltLeft", "AltRight", "MetaLeft", "MetaRight",
+  "CapsLock", "OSLeft", "OSRight",
+]);
+let keyCapture = null;
+let keyPending = null;
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+}
+
+function paintConflict() {
+  const box = document.getElementById("keys-conflict");
+  const text = document.getElementById("keys-conflict-text");
+  const swap = document.getElementById("keys-swap");
+  const clear = document.getElementById("keys-clear");
+  if (!box || !text || !swap || !clear) return;
+  if (!keyPending) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  text.textContent = keyPending.message;
+  swap.hidden = !keyPending.swap;
+  clear.hidden = !keyPending.clear;
+}
+
+function renderKeysList() {
+  const list = document.getElementById("keys-list");
+  const hint = document.getElementById("keys-hint");
+  if (!list) return;
+  list.replaceChildren();
+  for (const id of KEY_ROWS) {
+    const drum = BY_ID[id];
+    const row = document.createElement("div");
+    row.className = "key-row";
+    const name = document.createElement("span");
+    name.className = "key-name";
+    name.textContent = drum.name;
+    const slots = document.createElement("span");
+    slots.className = "key-slots";
+    const codes = codesFor(id);
+    codes.forEach((code, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.drum = id;
+      button.dataset.index = String(index);
+      button.textContent = labelFor(code);
+      const armed = keyCapture && keyCapture.id === id && keyCapture.index === index;
+      button.setAttribute("aria-pressed", armed ? "true" : "false");
+      slots.appendChild(button);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "key-x";
+      remove.dataset.remove = String(index);
+      remove.dataset.drum = id;
+      remove.textContent = "去掉";
+      slots.appendChild(remove);
+    });
+    if (keyCapture && keyCapture.id === id && keyCapture.index === codes.length) {
+      const pending = document.createElement("button");
+      pending.type = "button";
+      pending.dataset.drum = id;
+      pending.dataset.index = String(codes.length);
+      pending.textContent = "按";
+      pending.setAttribute("aria-pressed", "true");
+      slots.appendChild(pending);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.dataset.add = id;
+    add.textContent = "加一个";
+    slots.appendChild(add);
+    row.append(name, slots);
+    list.appendChild(row);
+  }
+  if (hint) {
+    hint.textContent = keyCapture && !keyPending ? "现在按下一个键。" : "点一个键，再按键盘上的新键。";
+  }
+  paintConflict();
+}
+
+function refreshBindingUI() {
+  syncMaps();
+  for (const [id, el] of pieceEls) {
+    const drum = BY_ID[id];
+    const keys = el.querySelector(".keys");
+    if (keys) keys.innerHTML = drum.keys.map((key) => `<kbd>${escapeHtml(key)}</kbd>`).join("");
+    el.setAttribute("aria-label", drum.aria);
+  }
+  for (const row of about.querySelectorAll("[data-drum]")) {
+    const drum = BY_ID[row.dataset.drum];
+    const cell = row.querySelector(".about-keys");
+    if (drum && cell) cell.textContent = drum.keys.join(" ") || "未设";
+  }
+  for (const el of about.querySelectorAll("[data-shortcut]")) {
+    const code = shortcutCode(el.dataset.shortcut);
+    el.textContent = code ? labelFor(code) : "未设";
+  }
+  const titles = {
+    "practice-start": "practice",
+    "practice-listen": "listen",
+    "backing-loop": "backing-loop",
+  };
+  for (const [id, shortcut] of Object.entries(titles)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const code = shortcutCode(shortcut);
+    el.title = code ? `快捷键 ${labelFor(code)}` : "快捷键未设";
+  }
+  if (practice && practice.relabel) practice.relabel();
+  renderKeysList();
+}
+
+function handleKeyCapture(event) {
+  if (!keyCapture) return false;
+  if (event.repeat) return true;
+  const code = event.code;
+  if (MODIFIERS.has(code)) return true;
+  if (code === "Escape") {
+    keyCapture = null;
+    keyPending = null;
+    renderKeysList();
+    return true;
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey) return true;
+  const result = assign(keyCapture.id, keyCapture.index, code, "free");
+  if (result === "ok" || result === "same") {
+    keyCapture = null;
+    keyPending = null;
+    renderKeysList();
+    return true;
+  }
+  if (result === "duplicate") {
+    keyPending = { message: "这面鼓已经有这个键。", swap: false, clear: false };
+    renderKeysList();
+    return true;
+  }
+  if (result === "conflict") {
+    const owner = ownerOf(code);
+    const label = labelFor(code);
+    const canSwap = keyCapture.index < codesFor(keyCapture.id).length;
+    let message = "这个键已经有人用了。";
+    if (owner && owner.kind === "drum") {
+      const name = BY_ID[owner.id].name;
+      message = canSwap ? `${label} 已经给了${name}。对调，或清掉那边的。` : `${label} 已经给了${name}。可以清掉那边的。`;
+    } else if (owner) {
+      message = canSwap ? `${label} 是${owner.name}的快捷键。对调，或清掉。` : `${label} 是${owner.name}的快捷键。可以清掉。`;
+    }
+    keyPending = { id: keyCapture.id, index: keyCapture.index, code, message, swap: canSwap, clear: true };
+    renderKeysList();
+    return true;
+  }
+  return true;
+}
+
 practice = createPractice({
   drums: PIECES,
   getCtx: () => ctx,
@@ -668,6 +855,69 @@ practice = createPractice({
   stopMetronome: () => {
     if (metro.on) setMetronome(false, true);
   },
+});
+
+subscribe(refreshBindingUI);
+refreshBindingUI();
+
+const keysDialog = document.getElementById("keys");
+document.getElementById("keys-open").addEventListener("click", () => {
+  keyCapture = null;
+  keyPending = null;
+  renderKeysList();
+  if (keysDialog && typeof keysDialog.showModal === "function") keysDialog.showModal();
+});
+if (keysDialog) {
+  keysDialog.addEventListener("close", () => {
+    keyCapture = null;
+    keyPending = null;
+    renderKeysList();
+  });
+}
+document.getElementById("keys-list").addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button || !document.getElementById("keys-list").contains(button)) return;
+  if (button.dataset.add) {
+    keyPending = null;
+    keyCapture = { id: button.dataset.add, index: codesFor(button.dataset.add).length };
+    renderKeysList();
+    return;
+  }
+  if (button.dataset.remove != null && button.dataset.drum) {
+    keyCapture = null;
+    keyPending = null;
+    removeKey(button.dataset.drum, Number(button.dataset.remove));
+    return;
+  }
+  if (button.dataset.drum && button.dataset.index != null) {
+    keyPending = null;
+    keyCapture = { id: button.dataset.drum, index: Number(button.dataset.index) };
+    renderKeysList();
+  }
+});
+document.getElementById("keys-swap").addEventListener("click", () => {
+  if (!keyPending || !keyPending.code) return;
+  assign(keyPending.id, keyPending.index, keyPending.code, "swap");
+  keyPending = null;
+  keyCapture = null;
+  renderKeysList();
+});
+document.getElementById("keys-clear").addEventListener("click", () => {
+  if (!keyPending || !keyPending.code) return;
+  assign(keyPending.id, keyPending.index, keyPending.code, "clear");
+  keyPending = null;
+  keyCapture = null;
+  renderKeysList();
+});
+document.getElementById("keys-cancel").addEventListener("click", () => {
+  keyPending = null;
+  keyCapture = null;
+  renderKeysList();
+});
+document.getElementById("keys-reset").addEventListener("click", () => {
+  keyCapture = null;
+  keyPending = null;
+  resetKeys();
 });
 
 bpmInput.addEventListener("input", () => {
@@ -852,4 +1102,5 @@ window.drumkit = {
   loadBackingUrl: (url, name) => backing.loadUrl(url, name),
   backing: () => backing.debug(),
   practice: () => (practice ? practice.debug() : null),
+  keys: () => snapshot(),
 };

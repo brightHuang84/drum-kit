@@ -51,6 +51,7 @@
         <input id="volume" type="range" min="0" max="100" value="82" aria-label="音量">
       </label>
       <button type="button" id="fullscreen" aria-pressed="false">全屏</button>
+      <button type="button" id="keys-open" aria-haspopup="dialog" aria-controls="keys">按键设置</button>
       <button type="button" id="about-open" aria-haspopup="dialog">关于</button>
     </header>
 
@@ -125,28 +126,46 @@
 
   <dialog id="about">
     <h2>关于这套鼓</h2>
-    <p>用键盘或手指演奏。可以同时敲好几面，声音会叠在一起，不会互相切断。需要双手轮流敲的鼓有两个紧挨着的键，交替按就是滚奏，两条采样会轮换。底鼓仍是空格，开镲是单键 D。</p>
+    <p>用键盘或手指演奏。可以同时敲好几面，声音会叠在一起，不会互相切断。一面鼓可以有不止一个键，交替按就是滚奏，两条采样会轮换。每面鼓的键写在下表，也可以到按键设置里改。</p>
     <table>
       <thead><tr><th>键</th><th>鼓</th><th>English</th><th>哪只手</th></tr></thead>
       <tbody>
-        <tr><td>Q W</td><td>吊镲</td><td>Crash</td><td>左手向上</td></tr>
-        <tr><td>E R</td><td>高音嗵鼓</td><td>Hi tom</td><td>左手向上</td></tr>
-        <tr><td>T Y</td><td>中音嗵鼓</td><td>Mid tom</td><td>右手向上</td></tr>
-        <tr><td>U I</td><td>叮叮镲</td><td>Ride</td><td>右手向上</td></tr>
-        <tr><td>A S</td><td>闭镲</td><td>Closed hi-hat</td><td>左手</td></tr>
-        <tr><td>D</td><td>开镲</td><td>Open hi-hat</td><td>左手</td></tr>
-        <tr><td>F G</td><td>军鼓</td><td>Snare</td><td>两手在中间交替</td></tr>
-        <tr><td>空格</td><td>底鼓</td><td>Kick</td><td>拇指</td></tr>
-        <tr><td>J K</td><td>落地嗵鼓</td><td>Floor tom</td><td>右手</td></tr>
+        <tr data-drum="crash"><td class="about-keys">Q W</td><td>吊镲</td><td>Crash</td><td>左手向上</td></tr>
+        <tr data-drum="tomHigh"><td class="about-keys">E R</td><td>高音嗵鼓</td><td>Hi tom</td><td>左手向上</td></tr>
+        <tr data-drum="tomMid"><td class="about-keys">T Y</td><td>中音嗵鼓</td><td>Mid tom</td><td>右手向上</td></tr>
+        <tr data-drum="ride"><td class="about-keys">U I</td><td>叮叮镲</td><td>Ride</td><td>右手向上</td></tr>
+        <tr data-drum="hhClosed"><td class="about-keys">A S</td><td>闭镲</td><td>Closed hi-hat</td><td>左手</td></tr>
+        <tr data-drum="hhOpen"><td class="about-keys">D</td><td>开镲</td><td>Open hi-hat</td><td>左手</td></tr>
+        <tr data-drum="snare"><td class="about-keys">F G</td><td>军鼓</td><td>Snare</td><td>两手在中间交替</td></tr>
+        <tr data-drum="kick"><td class="about-keys">空格</td><td>底鼓</td><td>Kick</td><td>拇指</td></tr>
+        <tr data-drum="tomFloor"><td class="about-keys">J K</td><td>落地嗵鼓</td><td>Floor tom</td><td>右手</td></tr>
       </tbody>
     </table>
     <p>「录音」记下你敲的每一下，再按「播放」按原来的时间放出来。节拍器不会被录进去。新的录音会换掉上一段。</p>
     <p>伴奏可以跟自己的歌，也可以选内置的两段无鼓音乐。点「打开伴奏」，或把 mp3、wav、ogg、m4a 等文件拖进页面。文件只留在这台浏览器里，不会上传；上次选的曲会记在本地，刷新后还在。播放、暂停、停止、进度、循环都有。伴奏音量和速度跟鼓分开，速度从 0.5 倍到 1.25 倍，音高也会一起变。</p>
-    <p>伴奏的快捷键不占用鼓键：<kbd>B</kbd> 播放或暂停，<kbd>N</kbd> 停止，<kbd>L</kbd> 循环，<kbd>[</kbd> <kbd>]</kbd> 后退或前进 5 秒，<kbd>-</kbd> <kbd>=</kbd> 调节速度。录音时如果伴奏正在放，会记下当时的位置；播放这段录音时，伴奏从那个位置一起开始。节拍器可以同时开着。</p>
-    <p>「鼓谱」里有十首由易到难的入门节奏。格子里是一个点，敲到这面鼓就行。键写在鼓的旁边，两个键按哪个都行。点「练习」以后由你自己起拍，亮着的格子跟着你敲对的音往前走，不再用预备拍对齐。速度按你前后两下之间的时间来算，再和目标 BPM 比，写出偏快、偏慢或正好，旁边给出 +6 这样的数。每一圈给出稳不稳，单位是毫秒。格子的颜色跟你自己的拍子比：跟上是绿的，早了或晚了换一种颜色。敲错的鼓只轻轻记一笔。谱上可以只练几面鼓。点全部、只底鼓或底鼓+军鼓，也可以一面一面的开关。关掉的鼓在谱上变淡，游标不等它，敲它也不算错。空出来的格子仍算进速度。跟奏默认关，打开后没选上的鼓跟着你的速度响。嘀声默认关掉，要响再打开，它按目标速度走，不拿来判你。点「试听」仍按设定的 BPM 先听四拍，再打出整首。快捷键 <kbd>C</kbd> 练习，<kbd>V</kbd> 试听，上下键换一首。伴奏可以同时开着。</p>
+    <p>伴奏的快捷键：<kbd data-shortcut="backing-play">B</kbd> 播放或暂停，<kbd data-shortcut="backing-stop">N</kbd> 停止，<kbd data-shortcut="backing-loop">L</kbd> 循环，<kbd data-shortcut="backing-back">[</kbd> <kbd data-shortcut="backing-forward">]</kbd> 后退或前进 5 秒，<kbd data-shortcut="backing-slower">-</kbd> <kbd data-shortcut="backing-faster">=</kbd> 调节速度。录音时如果伴奏正在放，会记下当时的位置；播放这段录音时，伴奏从那个位置一起开始。节拍器可以同时开着。</p>
+    <p>「鼓谱」里有十首由易到难的入门节奏。格子里是一个点，敲到这面鼓就行。键写在鼓的旁边，两个键按哪个都行。点「练习」以后由你自己起拍，亮着的格子跟着你敲对的音往前走，不再用预备拍对齐。速度按你前后两下之间的时间来算，再和目标 BPM 比，写出偏快、偏慢或正好，旁边给出 +6 这样的数。每一圈给出稳不稳，单位是毫秒。格子的颜色跟你自己的拍子比：跟上是绿的，早了或晚了换一种颜色。敲错的鼓只轻轻记一笔。谱上可以只练几面鼓。点全部、只底鼓或底鼓+军鼓，也可以一面一面的开关。关掉的鼓在谱上变淡，游标不等它，敲它也不算错。空出来的格子仍算进速度。跟奏默认关，打开后没选上的鼓跟着你的速度响。嘀声默认关掉，要响再打开，它按目标速度走，不拿来判你。点「试听」仍按设定的 BPM 先听四拍，再打出整首。快捷键 <kbd data-shortcut="practice">C</kbd> 练习，<kbd data-shortcut="listen">V</kbd> 试听，<kbd data-shortcut="lesson-prev">上</kbd> <kbd data-shortcut="lesson-next">下</kbd> 换一首。伴奏可以同时开着。</p>
     <p class="credit">音色来自 Virtuosity Drums（Versilian Studios 与 Karoryfer Samples），许可证为 CC0 1.0 公有领域。中音嗵鼓由高音嗵鼓采样降低四个半音得到。</p>
     <p><button type="button" id="diag-toggle">延迟诊断</button></p>
     <form method="dialog"><button type="submit" value="close">关闭</button></form>
+  </dialog>
+
+  <dialog id="keys">
+    <h2>按键设置</h2>
+    <p id="keys-hint">点一个键，再按键盘上的新键。</p>
+    <div id="keys-list"></div>
+    <div id="keys-conflict" class="keys-conflict" hidden>
+      <p id="keys-conflict-text"></p>
+      <div class="keys-conflict-actions">
+        <button type="button" id="keys-swap">对调</button>
+        <button type="button" id="keys-clear">清掉</button>
+        <button type="button" id="keys-cancel">取消</button>
+      </div>
+    </div>
+    <div class="keys-bar">
+      <button type="button" id="keys-reset">恢复默认</button>
+      <form method="dialog"><button type="submit" value="close">关闭</button></form>
+    </div>
   </dialog>
 
   <aside id="diag" class="diag" hidden>

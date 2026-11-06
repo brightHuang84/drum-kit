@@ -10,6 +10,8 @@
 // on the same context as the drums, and does not open a second output device.
 // Speed uses playbackRate, so pitch moves with the tempo.
 
+import { shortcutFor } from "./bindings.js";
+
 const BUILTINS = {
   "backing/peaceful3.mp3": "平静 · 钢琴与贝斯",
   "backing/bgmusic1.mp3": "和弦 · 钢琴、钟与贝斯",
@@ -534,35 +536,35 @@ export function createBacking(deps) {
     if (event.metaKey || event.ctrlKey || event.altKey) return false;
     const target = event.target;
     if (target instanceof Element && target.closest("input, textarea, select")) return false;
-    const code = event.code;
-    if (code === "KeyB" || code === "KeyN" || code === "KeyL") {
+    const action = shortcutFor(event.code);
+    if (action === "backing-play" || action === "backing-stop" || action === "backing-loop") {
       if (event.repeat) return true;
     }
-    if (code === "KeyB") {
+    if (action === "backing-play") {
       toggle();
       return true;
     }
-    if (code === "KeyN") {
+    if (action === "backing-stop") {
       stop();
       return true;
     }
-    if (code === "KeyL") {
+    if (action === "backing-loop") {
       if (hasTrack()) setLoop(!state.loop);
       return true;
     }
-    if (code === "BracketLeft") {
+    if (action === "backing-back") {
       seekBy(-5);
       return true;
     }
-    if (code === "BracketRight") {
+    if (action === "backing-forward") {
       seekBy(5);
       return true;
     }
-    if (code === "Minus") {
+    if (action === "backing-slower") {
       setRate(state.rate - 0.05);
       return true;
     }
-    if (code === "Equal") {
+    if (action === "backing-faster") {
       setRate(state.rate + 0.05);
       return true;
     }
